@@ -60,7 +60,9 @@ history) and covered by the existing conversion/document-tool suites (41 tests).
 
 - Both GitHub and Vercel are authenticated as `pranjalmishr`.
 - Private repository [pranjalmishr/formiqo](https://github.com/pranjalmishr/formiqo) created.
-  The initial push was rejected for missing OAuth `workflow` scope; permission refresh requested.
+  The additional OAuth `workflow` permission was approved. The source was pushed to `main`,
+  and the remote commit matched local commit `61c3e56434df91babd05f7fb2ea3852dbb41eee3`.
+  GitHub Actions started after the push; hosted CI was still in progress at verification.
 - Vercel project [formiqo](https://vercel.com/pranjal-mishras-projects-52970ad6/formiqo) created
   and locally linked. Root `frontend`, Node 22.x and custom build settings were configured and
   read back via the authenticated Vercel API. No deployment targets exist yet.
@@ -70,7 +72,7 @@ history) and covered by the existing conversion/document-tool suites (41 tests).
 - Hardened Git/Vercel exclusions for secrets, local databases and private documents. Added
   standalone repository CI under `.github/workflows/checks.yml`.
 - The user confirmed there is **no hosted backend**. See [GITHUB-VERCEL.md](GITHUB-VERCEL.md).
-  Source push awaits the workflow permission; production awaits a live persistent backend origin.
+  Source push is complete; production awaits a live persistent backend origin.
   No working application URL is claimed.
 
 ## Next candidates (not started)

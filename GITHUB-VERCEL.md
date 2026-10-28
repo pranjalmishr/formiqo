@@ -6,9 +6,11 @@
 - Created private repository: [pranjalmishr/formiqo](https://github.com/pranjalmishr/formiqo). The repository root is this
   Formiqo directory, not the surrounding Designer starter workspace.
 - Vercel root directory: `frontend`.
-- Both CLIs are authenticated as `pranjalmishr`. The first GitHub push was rejected because the
-  OAuth login lacks `workflow` scope for `.github/workflows/checks.yml`. A permission refresh
-  has been requested; the repository has no published main branch until that succeeds.
+- Both CLIs are authenticated as `pranjalmishr`. The additional GitHub `workflow` permission was
+  approved and the source was pushed to `main`. The remote commit was read back and matched
+  local commit `61c3e56434df91babd05f7fb2ea3852dbb41eee3` at verification.
+- [GitHub checks](https://github.com/pranjalmishr/formiqo/actions) started after the push;
+  no hosted-CI pass is claimed while the run is still in progress.
 - Vercel project [formiqo](https://vercel.com/pranjal-mishras-projects-52970ad6/formiqo)
   was created and linked. Verified settings: root `frontend`, framework Other, Node 22.x,
   install `npm ci`, build `npm run build:vercel`, no Output Directory override.
