@@ -283,7 +283,7 @@ unavailable SMTP, account deletion and responsive layouts. Actual conversion out
 OCR/SMTP/live-AI control-flow tests use explicit mocks. Optional Office conversions are not asserted as tested here.
 Axe checks on tested pages reported zero steady-state WCAG A/AA violations; this is not a full accessibility certification.
 Synthetic screenshots/files live in the ignored frontend test-results folder. CI is supplied in
-[formiqo-ci.yml](../.github/workflows/formiqo-ci.yml); a hosted CI run was not performed here.
+[checks.yml](.github/workflows/checks.yml); a hosted CI run was not performed here.
 Security audits: `npm audit`, `pip-audit -r requirements.txt`; rerun as advisories evolve.
 
 ## Architecture
