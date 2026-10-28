@@ -58,15 +58,20 @@ history) and covered by the existing conversion/document-tool suites (41 tests).
 
 ## GitHub / Vercel publication request
 
-- Target account: `pranjalmishr`; proposed standalone private repository: `formiqo`.
-- GitHub and Vercel CLI authentication were checked; neither is signed in on this host.
+- Both GitHub and Vercel are authenticated as `pranjalmishr`.
+- Private repository [pranjalmishr/formiqo](https://github.com/pranjalmishr/formiqo) created.
+  The initial push was rejected for missing OAuth `workflow` scope; permission refresh requested.
+- Vercel project [formiqo](https://vercel.com/pranjal-mishras-projects-52970ad6/formiqo) created
+  and locally linked. Root `frontend`, Node 22.x and custom build settings were configured and
+  read back via the authenticated Vercel API. No deployment targets exist yet.
 - Added Vercel frontend Build Output API configuration with a build-time `FORMIQO_API_ORIGIN`
   edge rewrite, SPA routing, and tests. Local frontend tests: 40 passed; deployment tests: 4 passed;
   production and Vercel-output builds pass (the latter used an example origin, not a live backend).
 - Hardened Git/Vercel exclusions for secrets, local databases and private documents. Added
   standalone repository CI under `.github/workflows/checks.yml`.
-- See [GITHUB-VERCEL.md](GITHUB-VERCEL.md). Remote push and production deployment remain
-  **blocked on browser sign-in and an actual persistent backend origin**; no live URL is claimed.
+- The user confirmed there is **no hosted backend**. See [GITHUB-VERCEL.md](GITHUB-VERCEL.md).
+  Source push awaits the workflow permission; production awaits a live persistent backend origin.
+  No working application URL is claimed.
 
 ## Next candidates (not started)
 

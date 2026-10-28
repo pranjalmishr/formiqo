@@ -3,13 +3,18 @@
 ## Target and current status
 
 - Requested GitHub account: [pranjalmishr](https://github.com/pranjalmishr).
-- Proposed repository: `pranjalmishr/formiqo` (private by default). The repository root is this
+- Created private repository: [pranjalmishr/formiqo](https://github.com/pranjalmishr/formiqo). The repository root is this
   Formiqo directory, not the surrounding Designer starter workspace.
 - Vercel root directory: `frontend`.
-- Deployment configuration and local checks are ready. No remote push or production deployment
-  is confirmed until the authenticated commands return the repository and deployment URLs.
-- GitHub and Vercel authentication are required. Do not paste access tokens into source or chat;
-  use the CLIs' browser/device login.
+- Both CLIs are authenticated as `pranjalmishr`. The first GitHub push was rejected because the
+  OAuth login lacks `workflow` scope for `.github/workflows/checks.yml`. A permission refresh
+  has been requested; the repository has no published main branch until that succeeds.
+- Vercel project [formiqo](https://vercel.com/pranjal-mishras-projects-52970ad6/formiqo)
+  was created and linked. Verified settings: root `frontend`, framework Other, Node 22.x,
+  install `npm ci`, build `npm run build:vercel`, no Output Directory override.
+- No production deployment exists: the user confirmed there is no hosted backend yet.
+  GitHub auto-deploy integration stays disconnected until a live backend origin is available.
+- Do not paste access tokens into source or chat; use the CLIs' browser/device login.
 
 ## Hosting split (required)
 
@@ -63,7 +68,8 @@ Run from this repository root:
 ```sh
 gh auth login --hostname github.com --git-protocol https --web
 gh auth setup-git
-gh repo create pranjalmishr/formiqo --private --source=. --remote=origin --push
+gh auth refresh --hostname github.com --scopes workflow
+git push -u origin main
 ```
 
 If the repository already exists, inspect its history before setting the remote and pushing. Never
