@@ -14,7 +14,7 @@ from datetime import timedelta
 from email.message import EmailMessage
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, delete, update
+from .persistence import find, first, remove_where, change_where, consume_token_id
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
 from .db import Session, User, AuthSession, AuthToken, Resume, Analysis, ConversionJob, DocumentRecord, get_db, now
@@ -89,10 +89,10 @@ def claim_guest(db, request, user):
     if not re.fullmatch(r'[0-9a-f]{64}', token): return
     old, new = digest(token), user_owner(user)
     expiry = retention_expiry(new)
-    db.execute(update(Resume).where(Resume.owner == old, Resume.expires_at > now()).values(owner=new, expires_at=expiry))
-    db.execute(update(Analysis).where(Analysis.owner == old).values(owner=new))
-    db.execute(update(ConversionJob).where(ConversionJob.owner == old, ConversionJob.expires_at > now()).values(owner=new, expires_at=expiry))
-    db.execute(update(DocumentRecord).where(DocumentRecord.owner == old).values(owner=new))
+    change_where(db, Resume, [('owner','==',old),('expires_at','>',now())], {'owner':new,'expires_at':expiry})
+    change_where(db, Analysis, [('owner','==',old)], {'owner':new})
+    change_where(db, ConversionJob, [('owner','==',old),('expires_at','>',now())], {'owner':new,'expires_at':expiry})
+    change_where(db, DocumentRecord, [('owner','==',old)], {'owner':new})
 
 
 class Credentials(BaseModel):
@@ -151,7 +151,7 @@ async def deliver_token(db, user, purpose):
     token = secrets.token_hex(32)
     try: await asyncio.to_thread(send_mail, user.email, purpose, token)
     except (OSError, smtplib.SMTPException): raise HTTPException(503, 'Email delivery is unavailable. Please retry later; no reset or verification success is claimed.')
-    db.execute(delete(AuthToken).where(AuthToken.user_id == user.id, AuthToken.purpose == purpose))
+    remove_where(db, AuthToken, [('user_id','==',user.id),('purpose','==',purpose)])
     db.add(AuthToken(token_hash=digest(token), user_id=user.id, purpose=purpose, expires_at=now()+timedelta(hours=1)))
     db.commit()
 
@@ -189,12 +189,12 @@ async def register(data: Register, request: Request, response: Response, db: DBS
 async def login(data: Credentials, request: Request, response: Response, db: DBSession = Depends(get_db)):
     from .storage import rate_limit
     enabled(); rate_limit(request, 'auth-login', limit=15)
-    user = db.scalar(select(User).where(User.email == data.email))
+    user = first(db, User, [('email','==',data.email)])
     valid = await password_task(verify_password, data.password, user.password_hash if user else DUMMY_HASH)
     if not user or not valid: raise HTTPException(401, 'Email or password is incorrect.')
     if settings.require_email_verification and not user.verified: raise HTTPException(403, 'Verify your email before signing in. Use Resend verification if needed.')
     old = request.cookies.get(COOKIE, '')
-    if old: db.execute(delete(AuthSession).where(AuthSession.token_hash == digest(old)))
+    if old: remove_where(db, AuthSession, [('token_hash','==',digest(old))])
     if data.claim_guest: claim_guest(db, request, user)
     start_session(db, user, response); db.commit()
     return {'user': public_user(user)}
@@ -202,14 +202,14 @@ async def login(data: Credentials, request: Request, response: Response, db: DBS
 
 @router.post('/logout', status_code=204)
 def logout(request: Request, response: Response, db: DBSession = Depends(get_db)):
-    db.execute(delete(AuthSession).where(AuthSession.token_hash == digest(request.cookies.get(COOKIE, '')))); db.commit()
+    remove_where(db, AuthSession, [('token_hash','==',digest(request.cookies.get(COOKIE, '')))]); db.commit()
     response.delete_cookie(COOKIE, path='/'); response.status_code=204
     return response
 
 
 @router.post('/refresh')
 def refresh(request: Request, response: Response, user=Depends(require_user), db: DBSession = Depends(get_db)):
-    db.execute(delete(AuthSession).where(AuthSession.token_hash == digest(request.cookies.get(COOKIE, ''))))
+    remove_where(db, AuthSession, [('token_hash','==',digest(request.cookies.get(COOKIE, '')))])
     start_session(db, user, response); db.commit()
     return {'user': public_user(user)}
 
@@ -217,13 +217,13 @@ def refresh(request: Request, response: Response, user=Depends(require_user), db
 @router.get('/sessions')
 def sessions(request: Request, user=Depends(require_user), db: DBSession = Depends(get_db)):
     current = digest(request.cookies.get(COOKIE, ''))
-    rows = db.scalars(select(AuthSession).where(AuthSession.user_id == user.id, AuthSession.expires_at > now()).order_by(AuthSession.created_at.desc())).all()
+    rows = find(db, AuthSession, [('user_id','==',user.id),('expires_at','>',now())], [('created_at','desc')])
     return {'items': [{'created_at': r.created_at.isoformat(), 'expires_at': r.expires_at.isoformat(), 'current': r.token_hash == current} for r in rows]}
 
 
 @router.post('/revoke-other-sessions', status_code=204)
 def revoke_others(request: Request, user=Depends(require_user), db: DBSession = Depends(get_db)):
-    db.execute(delete(AuthSession).where(AuthSession.user_id == user.id, AuthSession.token_hash != digest(request.cookies.get(COOKIE, '')))); db.commit()
+    remove_where(db, AuthSession, [('user_id','==',user.id),('token_hash','!=',digest(request.cookies.get(COOKIE, '')))]); db.commit()
     return Response(status_code=204)
 
 
@@ -232,7 +232,7 @@ async def forgot(data: EmailRequest, request: Request, db: DBSession = Depends(g
     from .storage import rate_limit
     enabled(); rate_limit(request, 'auth-email', limit=10)
     if not settings.smtp_host: raise HTTPException(503, 'Password reset requires configured SMTP. Contact the deployment administrator; no email was sent.')
-    user = db.scalar(select(User).where(User.email == data.email.strip().lower()))
+    user = first(db, User, [('email','==',data.email.strip().lower())])
     if user: await deliver_token(db, user, 'reset')
     return {'notice': 'If this address belongs to an account, a one-time reset link has been sent.'}
 
@@ -242,14 +242,14 @@ async def resend(data: EmailRequest, request: Request, db: DBSession = Depends(g
     from .storage import rate_limit
     enabled(); rate_limit(request, 'auth-email', limit=10)
     if not settings.smtp_host: raise HTTPException(503, 'Email verification requires configured SMTP; no email was sent.')
-    user = db.scalar(select(User).where(User.email == data.email.strip().lower()))
+    user = first(db, User, [('email','==',data.email.strip().lower())])
     if user and not user.verified: await deliver_token(db, user, 'verify')
     return {'notice': 'If verification is needed for this account, a one-time verification link has been sent.'}
 
 
 def consume_token(db, token, purpose):
-    # A conditional DELETE makes consumption atomic even across concurrent requests.
-    result = db.execute(delete(AuthToken).where(AuthToken.token_hash == digest(token), AuthToken.purpose == purpose, AuthToken.expires_at > now()).returning(AuthToken.user_id)).scalar_one_or_none()
+    # Consumption and the following account change commit atomically on either store.
+    result = consume_token_id(db, AuthToken, digest(token), purpose, now())
     if not result: raise HTTPException(400, 'The one-time link is invalid, expired or already used.')
     return db.get(User, result)
 
@@ -258,7 +258,7 @@ def consume_token(db, token, purpose):
 async def reset(data: ResetRequest, db: DBSession = Depends(get_db)):
     enabled(); user = consume_token(db, data.token, 'reset')
     user.password_hash = await password_task(hash_password, data.password)
-    db.execute(delete(AuthSession).where(AuthSession.user_id == user.id)); db.commit()
+    remove_where(db, AuthSession, [('user_id','==',user.id)]); db.commit()
     return {'notice': 'Password changed. All sessions were revoked. Sign in with the new password.'}
 
 
@@ -273,6 +273,6 @@ async def delete_account(data: PasswordRequest, request: Request, response: Resp
     if not await password_task(verify_password, data.password, user.password_hash): raise HTTPException(401, 'Password is incorrect.')
     from .library import delete_owned_data
     delete_owned_data(db, user_owner(user))
-    db.execute(delete(AuthSession).where(AuthSession.user_id == user.id)); db.execute(delete(AuthToken).where(AuthToken.user_id == user.id))
+    remove_where(db, AuthSession, [('user_id','==',user.id)]); remove_where(db, AuthToken, [('user_id','==',user.id)])
     db.delete(user); db.commit(); response.delete_cookie(COOKIE, path='/'); response.status_code=204
     return response

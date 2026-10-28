@@ -1,13 +1,15 @@
 # Formiqo — One Platform, Every Document
 
-A working React/Vite/TypeScript frontend and FastAPI/SQLAlchemy backend. The original
+A working React/Vite/TypeScript frontend and FastAPI backend with native Firestore or SQL persistence. The original
 project directory, database names and guest cookie remain compatible with the earlier ResumeAI build.
 No random scores, fake conversions, invented activity or frontend API secrets.
 
 For GitHub and Vercel hosting, see [GitHub + Vercel setup](GITHUB-VERCEL.md).
 Vercel serves the frontend; persistent backend/database hosting is required separately.
-The requested Firebase project is linked; see [Firebase verification and blockers](firebase/README.md).
-Firestore connectivity is verified, but backend hosting and database migration are not deployed.
+The running local app now stores structured data in ordinary Cloud Firestore in **nitre-d8cdd**
+on the free Spark plan, with **no billing account**. Existing data (212 records) was migrated
+and read-back verified. See [Firestore setup and limits](firebase/README.md).
+PDF/DOCX/image binaries remain in private backend storage. Public Python hosting is still pending.
 
 ## Start here
 
@@ -76,7 +78,7 @@ Every saved ATS check and job match is listed at **/app/records** exactly as it 
 score, weighted term coverage, required terms found, findings and the six category scores. Search, filter by type or
 resume, sort, expand a row for the breakdown, open the full report or delete a record. **Excel** (records, summary and
 about sheets), **CSV** (formula-injection safe) and **JSON** (with findings and term evidence) exports are generated
-by the API from the same rows. Records come from the existing `analyses` table, so nothing is duplicated, and they
+by the API from the same records. Records come from the `analyses` entity (Firestore collection or SQL table), so nothing is duplicated, and they
 expire with their resume.
 
 ### Page fit for PDF and Word
@@ -278,7 +280,7 @@ npm run test:e2e
 CHROME_EXECUTABLE='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' npm run test:e2e
 ```
 
-Current backend suite: **173 tests**. Frontend unit/component suite: **40 tests**. Seven browser e2e suites. Production build and actual
+Current backend suite: **184 tests** with the Firestore emulator. Frontend unit/component suite: **42 tests**. Seven browser e2e suites. Production build and actual
 browser workflows cover checker, editor, builder, conversion/ZIP/ordered mixed images, account claiming,
 sign-in/out isolation/persistence, library rename/filter, history, matcher/tailored copies, local assistant,
 unavailable SMTP, account deletion and responsive layouts. Actual conversion outputs are opened, not merely status-checked.
@@ -294,8 +296,9 @@ Frontend routes are lazy-loaded; shared primitives use Radix/CVA shadcn-style so
 Recharts and TipTap. Typed API helpers keep business logic out of components where practical.
 Backend separates scoring, extraction, conversion/worker execution, AI review/intelligence, auth, storage,
 library/activity, builder/editor schemas, exports and database access. No duplicate file bytes in the database.
-PostgreSQL stores accounts, session/token digests, resume/analysis/version/builder records, conversion metadata
-and conversion-library references. Private output files use authorized serving paths, never public static URLs.
+The configured primary provider stores accounts, session/token digests, resume/analysis/version/builder records,
+conversion metadata and library references. The local installation now uses ordinary Cloud Firestore; SQL remains
+an optional provider. Private output files use authorized serving paths, never public static URLs.
 
 Remaining release gates are configuration/operations and fidelity validation, not fake placeholder modules:
 live provider/email/OCR/optional Office testing, production infrastructure hardening, deployment/restore drills,

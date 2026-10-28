@@ -5,9 +5,15 @@ A production release requires the configuration and operational checks below.
 
 ## Recommended topology
 
-HTTPS ingress → frontend Nginx/static assets + same-origin `/api` proxy → one FastAPI instance → managed PostgreSQL.
+Current user-selected data store: **ordinary Cloud Firestore on Spark, no billing account**.
+The local backend is configured and 212 existing structured records were migrated and verified.
+See [Firestore setup and limits](firebase/README.md). Do not enable paid Firebase services for this setup.
+
+HTTPS ingress → frontend Nginx/Vercel static assets + same-origin `/api` proxy → one FastAPI instance → Firestore
+(or optional managed PostgreSQL when `DATABASE_BACKEND=sql`).
 Use a private durable encrypted volume for retained conversion outputs and scratch storage.
-Original uploads are removed after processing; resume text/versions are in PostgreSQL.
+Resume originals are retained privately until deletion/expiry; converter inputs are removed after processing.
+Structured text, drafts and scores are in the selected database. Firestore is not PDF/DOCX/image file storage.
 Do not put retained outputs only on an ephemeral serverless filesystem.
 
 The local [compose.yaml](compose.yaml) provides PostgreSQL, API and frontend with persistent named volumes.

@@ -9,7 +9,7 @@ from fastapi import APIRouter,Depends,HTTPException,Request,Response,UploadFile,
 from fastapi.responses import FileResponse
 from pydantic import BaseModel,Field
 from sqlalchemy.orm import Session as DBSession
-from sqlalchemy import update
+from .persistence import change_where
 from .db import get_db,ConversionJob,uid
 from .storage import owner,rate_limit,safe_filename
 from .auth import retention_expiry
@@ -101,8 +101,8 @@ def run(identifier:str,data:Run,request:Request,background:BackgroundTasks,owner
   spec['inputs']=[row.inputs[i]['path'] for i in order];spec['formats']=[row.inputs[i]['format'] for i in order]
  if len(_pending)>=20:raise HTTPException(503,'Processing queue is full. Your prepared input remains available; retry shortly.')
  requested_order=data.file_order or options.get('file_order') or list(range(len(row.inputs)))
- changed=db.execute(update(ConversionJob).where(ConversionJob.id==identifier,ConversionJob.owner==owner_id,ConversionJob.status=='prepared').values(status='queued',progress=0,error=None,settings={**row.settings,**options,'_phase':'run','_input_order':requested_order}))
- if changed.rowcount!=1:db.rollback();raise HTTPException(409,'This workspace was already run or canceled. Refresh its status.')
+ changed=change_where(db,ConversionJob,[('id','==',identifier),('owner','==',owner_id),('status','==','prepared')],dict(status='queued',progress=0,error=None,settings={**row.settings,**options,'_phase':'run','_input_order':requested_order}))
+ if changed!=1:db.rollback();raise HTTPException(409,'This workspace was already run or canceled. Refresh its status.')
  try:(directory/'request.json').write_text(json.dumps(spec))
  except OSError:db.rollback();raise HTTPException(507,'The operation could not be staged. Check workspace storage and retry.')
  db.commit();db.refresh(row);_pending.add(identifier);background.add_task(process_job,identifier)

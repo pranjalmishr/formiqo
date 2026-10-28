@@ -1,4 +1,4 @@
-import {createContext,useContext,useEffect,useState,Suspense,type ReactNode} from 'react';
+import {createContext,useContext,useEffect,useRef,useState,Suspense,type ReactNode} from 'react';
 import {Link,NavLink,Outlet,useLocation} from 'react-router-dom';
 import {LayoutDashboard,ScanText,PenLine,FilePlus2,BriefcaseBusiness,ArrowLeftRight,FolderOpen,History,Settings,CircleHelp,Menu,Sparkles,ShieldCheck,ArrowUpRight,UserRound,Layers,Upload,Sun,Moon,BarChart3} from 'lucide-react';
 import {api,type Config} from './lib/api';
@@ -7,7 +7,15 @@ import {Dialog} from './components/ui/dialog';
 export interface AccountUser{id:string;name:string;email:string;verified:boolean;created_at:string}
 const Context=createContext<{config:Config|null;user:AccountUser|null;configError:string;retry:()=>void}>({config:null,user:null,configError:'',retry:()=>{}});
 export const useApp=()=>useContext(Context);
-export function AppProvider({children}:{children:ReactNode}){const[config,setConfig]=useState<Config|null>(null),[user,setUser]=useState<AccountUser|null>(null),[configError,setError]=useState('');const retry=()=>{setError('');api<Config>('/config').then(value=>{setConfig(value);return api<{user:AccountUser|null}>('/auth/me')}).then(value=>setUser(value.user)).catch(error=>setError(error.message))};useEffect(retry,[]);return <Context.Provider value={{config,user,configError,retry}}>{children}</Context.Provider>}
+export function AppProvider({children}:{children:ReactNode}){
+ const[config,setConfig]=useState<Config|null>(null),[user,setUser]=useState<AccountUser|null>(null),[configError,setError]=useState('');
+ const connecting=useRef<Promise<void>|null>(null);
+ // Establish the HttpOnly guest/account identity before mounting pages that request
+ // private data. StrictMode must not launch two cookie-setting /config requests.
+ const retry=()=>{if(connecting.current)return;setError('');connecting.current=api<Config>('/config').then(async value=>({config:value,user:(await api<{user:AccountUser|null}>('/auth/me')).user})).then(value=>{setConfig(value.config);setUser(value.user)}).catch(error=>setError(error.message)).finally(()=>{connecting.current=null})};
+ useEffect(retry,[]);
+ return <Context.Provider value={{config,user,configError,retry}}>{config?children:configError?<div className="p-8"><p role="alert">{configError}</p><Button className="mt-4" onClick={retry}>Retry connection</Button></div>:<p className="p-8" role="status">Connecting to your private workspace…</p>}</Context.Provider>
+}
 export function Logo(){return <Link to="/" aria-label="Formiqo home" className="flex items-center gap-2.5 text-ink"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-white"><ScanText size={22}/></span><span><span className="block text-xl font-bold tracking-tight">Formiqo</span><span className="mt-0.5 block text-[9px] font-medium tracking-wide text-slate-500">One Platform, Every Document</span></span></Link>}
 function ThemeToggle(){const[dark,setDark]=useState(()=>{try{return localStorage.getItem('formiqo.theme')==='dark'}catch{return false}});useEffect(()=>{document.documentElement.dataset.theme=dark?'dark':'light';try{localStorage.setItem('formiqo.theme',dark?'dark':'light')}catch{}},[dark]);return <button className="theme-toggle" aria-label={'Switch to '+(dark?'light':'dark')+' theme'} onClick={()=>setDark(value=>!value)}>{dark?<Sun size={17}/>:<Moon size={17}/>}</button>}
 const items=[{to:'/app',label:'Dashboard',icon:LayoutDashboard},{to:'/app/editor',label:'Resume Editor',icon:PenLine},{to:'/app/templates',label:'Template Library',icon:Layers},{to:'/app/import',label:'Import & Recreate',icon:Upload},{to:'/app/checker',label:'ATS Resume Checker',icon:ScanText},{to:'/app/matcher',label:'Job Description Matcher',icon:BriefcaseBusiness},{to:'/app/converter',label:'Document Converter',icon:ArrowLeftRight},{to:'/app/records',label:'Score Records',icon:BarChart3},{to:'/app/documents',label:'My Documents',icon:FolderOpen},{to:'/app/history',label:'Conversion History',icon:History}];

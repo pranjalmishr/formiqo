@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator, Field
 
@@ -6,6 +7,11 @@ from pydantic import field_validator, Field
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
     database_url: str = 'sqlite:///./resumeai.db'  # Local development only; Compose uses PostgreSQL.
+    database_backend: Literal['sql','firestore'] = 'sql'
+    firebase_project_id: str = ''
+    firebase_database_id: str = '(default)'
+    firebase_credentials_file: Path | None = None  # optional local ADC path; never a browser API key
+    firebase_namespace: str = Field(default='v1', pattern=r'^[A-Za-z0-9_-]{1,80}$')
     storage_dir: Path = Path('./private-storage')
     max_upload_mb: int = Field(default=10, ge=1, le=25)
     max_pages: int = Field(default=30, ge=1, le=50)

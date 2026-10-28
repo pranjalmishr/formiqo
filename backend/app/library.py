@@ -1,7 +1,7 @@
 """Unified owned document library and deletion cascade, without duplicating file bytes."""
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, delete, func
+from .persistence import find, first, remove_where, conversion_pairs
 from sqlalchemy.orm import Session as DBSession
 from .db import get_db, Resume, Analysis, ResumeVersion, EditorDraft, EditorVersion, BuilderDraft, SourceDocument, ConversionJob, DocumentRecord, now
 from .storage import owner, safe_filename, remove_source
@@ -11,22 +11,22 @@ router=APIRouter(prefix='/api/documents',tags=['Document library'])
 
 
 def remove_resume(db,r):
-    for model in [Analysis,ResumeVersion,EditorVersion,EditorDraft,BuilderDraft,SourceDocument]: db.execute(delete(model).where(model.resume_id==r.id))
+    for model in [Analysis,ResumeVersion,EditorVersion,EditorDraft,BuilderDraft,SourceDocument]: remove_where(db,model,[('resume_id','==',r.id)])
     db.delete(r);remove_source(r.id,include_original=True)
 
 
 def remove_conversion(db,job):
     from .converter_api import remove_job_files
-    db.execute(delete(DocumentRecord).where(DocumentRecord.job_id==job.id));db.delete(job);remove_job_files(job.id)
+    remove_where(db,DocumentRecord,[('job_id','==',job.id)]);db.delete(job);remove_job_files(job.id)
 
 
 def delete_owned_data(db,owner_id):
-    for r in db.scalars(select(Resume).where(Resume.owner==owner_id)).all(): remove_resume(db,r)
-    for job in db.scalars(select(ConversionJob).where(ConversionJob.owner==owner_id)).all(): remove_conversion(db,job)
+    for r in find(db,Resume,[('owner','==',owner_id)]): remove_resume(db,r)
+    for job in find(db,ConversionJob,[('owner','==',owner_id)]): remove_conversion(db,job)
 
 
 def resume_item(db,r):
-    latest=db.scalar(select(Analysis).where(Analysis.resume_id==r.id).order_by(Analysis.created_at.desc()).limit(1))
+    latest=first(db,Analysis,[('resume_id','==',r.id)],[('created_at','desc')])
     return {'id':r.id,'kind':'resume','filename':r.filename,'format':r.original_format,'category':'resume','created_at':r.created_at.isoformat(),'updated_at':r.updated_at.isoformat(),'expires_at':r.expires_at.isoformat(),'status':r.status,'error':r.error,'latest_score':latest.overall_score if latest else None,'latest_analysis_id':latest.id if latest else None,'has_builder':db.get(BuilderDraft,r.id)is not None,'download_url':'/api/resumes/'+r.id+'/download','open_url':'/app/editor?resume='+r.id,'analyze_url':'/app/checker?resume='+r.id}
 
 
@@ -43,20 +43,11 @@ def documents(offset:int=0,limit:int=50,q:str='',category:str='all',sort:str='re
     if not 0<=offset<=10000 or not 1<=limit<=100 or len(q)>200: raise HTTPException(422,'Invalid search or pagination.')
     if category not in ('all','resume','converted','pdf','docx','images','builder','txt'): raise HTTPException(422,'Invalid document category.')
     if sort not in ('recent','oldest','name'):raise HTTPException(422,'Unsupported document sort.')
-    # Fetch page-size-bounded subsets in SQL, then merge by updated timestamp.
-    from sqlalchemy import or_
-    search='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
-    resumes=select(Resume).where(Resume.owner==owner_id,Resume.expires_at>now(),Resume.filename.ilike(search,escape='\\'))
-    if category in ('pdf','docx','txt','builder'): resumes=resumes.where(Resume.original_format==category)
-    if category in ('converted','images'): resumes=resumes.where(Resume.id=='__none__')
-    resume_order=func.lower(Resume.filename).asc() if sort=='name' else Resume.updated_at.asc() if sort=='oldest' else Resume.updated_at.desc()
-    rs=db.scalars(resumes.order_by(resume_order).limit(offset+limit)).all()
-    query=select(DocumentRecord,ConversionJob).join(ConversionJob,ConversionJob.id==DocumentRecord.job_id).where(DocumentRecord.owner==owner_id,ConversionJob.owner==owner_id,ConversionJob.expires_at>now(),DocumentRecord.filename.ilike(search,escape='\\'))
-    if category in ('resume','builder'): query=query.where(DocumentRecord.id=='__none__')
-    if category in ('pdf','docx','txt'): query=query.where(DocumentRecord.format==category)
-    if category=='images': query=query.where(DocumentRecord.format.in_(['jpg','png','webp']))
-    converted_order=func.lower(DocumentRecord.filename).asc() if sort=='name' else DocumentRecord.updated_at.asc() if sort=='oldest' else DocumentRecord.updated_at.desc()
-    cs=db.execute(query.order_by(converted_order).limit(offset+limit)).all()
+    # Owner-filtered reads on either provider. Firestore is not asked to perform SQL joins.
+    rs=find(db,Resume,[('owner','==',owner_id),('expires_at','>',now())]) if category not in ('converted','images') else []
+    rs=[r for r in rs if q.casefold() in r.filename.casefold() and (category not in ('pdf','docx','txt','builder') or r.original_format==category)]
+    cs=conversion_pairs(db,owner_id) if category not in ('resume','builder') else []
+    cs=[(d,j) for d,j in cs if q.casefold() in d.filename.casefold() and (category not in ('pdf','docx','txt') or d.format==category) and (category!='images' or d.format in ('jpg','png','webp'))]
     items=[resume_item(db,r) for r in rs]+[conversion_item(d,j) for d,j in cs]
     items.sort(key=lambda row:row['filename'].casefold() if sort=='name' else row['updated_at'],reverse=sort=='recent')
     return {'items':items[offset:offset+limit],'offset':offset,'limit':limit,'has_more':len(items)>offset+limit or len(rs)==offset+limit or len(cs)==offset+limit}

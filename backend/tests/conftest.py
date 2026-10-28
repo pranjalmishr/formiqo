@@ -5,6 +5,7 @@ import pytest
 
 ROOT = Path(tempfile.mkdtemp(prefix='resumeai-tests-'))
 os.environ['DATABASE_URL'] = 'sqlite:///' + str(ROOT / 'test.db')
+os.environ['DATABASE_BACKEND'] = 'sql'  # isolate regressions from the user's local Firestore .env
 os.environ['STORAGE_DIR'] = str(ROOT / 'storage')
 os.environ['GUEST_LIMIT_PER_HOUR'] = '1000'
 

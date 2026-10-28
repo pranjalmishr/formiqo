@@ -6,7 +6,7 @@ import re
 from typing import Literal
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import select, update
+from .persistence import find, change_where
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
 from .config import settings
@@ -61,9 +61,9 @@ def commit_draft(db, draft, resume, data):
     revision = data.revision + 1
     content = data.content.model_dump()
     text = data.content.text()
-    result = db.execute(update(EditorDraft).where(EditorDraft.resume_id == resume.id, EditorDraft.revision == data.revision).values(content=content, revision=revision, source_hash=fingerprint(text), applied=data.applied, rejected=data.rejected, updated_at=now()))
-    updated = db.execute(update(Resume).where(Resume.id == resume.id, Resume.text == resume.text).values(text=text, updated_at=now()))
-    if result.rowcount != 1 or updated.rowcount != 1:
+    result = change_where(db, EditorDraft, [('resume_id','==',resume.id),('revision','==',data.revision)], dict(content=content,revision=revision,source_hash=fingerprint(text),applied=data.applied,rejected=data.rejected,updated_at=now()))
+    updated = change_where(db, Resume, [('id','==',resume.id),('text','==',resume.text)], dict(text=text,updated_at=now()))
+    if result != 1 or updated != 1:
         db.rollback()
         raise HTTPException(409, 'A newer draft exists. Reload it before continuing; your unsaved content has not been overwritten.')
     db.add(EditorVersion(resume_id=resume.id, revision=revision, content=content, change_summary=data.change_summary))
@@ -101,7 +101,7 @@ def import_preview(identifier: str, data: DraftSave, request: Request, owner_id=
 @router.get('/editor/{identifier}/versions')
 def versions(identifier: str, owner_id=Depends(owner), db: DBSession = Depends(get_db)):
     require(db, identifier, owner_id)
-    records = db.scalars(select(EditorVersion).where(EditorVersion.resume_id == identifier).order_by(EditorVersion.revision.desc()).limit(50)).all()
+    records = find(db, EditorVersion, [('resume_id','==',identifier)], [('revision','desc')], limit=50)
     return {'items': [{'id': v.id, 'revision': v.revision, 'content': v.content, 'change_summary': v.change_summary, 'created_at': v.created_at.isoformat()} for v in records]}
 
 

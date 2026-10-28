@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from .persistence import resume_children
 from sqlalchemy.orm import Session as DBSession
 
 from .auth import aware
@@ -78,14 +78,7 @@ def record(analysis: Analysis, resume: Resume):
 
 
 def owned_records(db: DBSession, owner_id: str, mode: str, query: str, resume_id: str | None, since: datetime | None):
-    statement = (select(Analysis, Resume).join(Resume, Resume.id == Analysis.resume_id)
-                 .where(Analysis.owner == owner_id, Resume.owner == owner_id, Resume.expires_at > now())
-                 .order_by(Analysis.created_at.desc()))
-    if resume_id:
-        statement = statement.where(Resume.id == resume_id)
-    if since:
-        statement = statement.where(Analysis.created_at >= since)
-    rows = [record(a, r) for a, r in db.execute(statement).all()]
+    rows = [record(a,r) for a,r in resume_children(db,Analysis,owner_id,resume_id=resume_id,since=since)]
     if mode in ('general', 'job'):
         rows = [row for row in rows if (row['mode'] == 'Job match') == (mode == 'job')]
     if query:
@@ -193,8 +186,7 @@ def export_records(format: Literal['csv', 'xlsx', 'json'] = 'csv', mode: Literal
         return Response(xlsx_bytes(rows, summary(rows)), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         headers={'Content-Disposition': f'attachment; filename="formiqo-score-records-{stamp}.xlsx"'})
     full = []
-    statement = select(Analysis).where(Analysis.owner == owner_id, Analysis.id.in_([row['analysis_id'] for row in rows]))
-    by_id = {a.id: a for a in db.scalars(statement)}
+    by_id = {row['analysis_id']:db.get(Analysis,row['analysis_id']) for row in rows}
     for row in rows:
         result = by_id[row['analysis_id']].result or {}
         full.append({**row, 'findings_detail': result.get('findings', []), 'strengths': result.get('strengths', []),

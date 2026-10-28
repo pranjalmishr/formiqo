@@ -3,7 +3,7 @@ import asyncio
 from datetime import timedelta
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import select, update
+from .persistence import resume_children, change_where
 from sqlalchemy.orm import Session as DBSession
 from .builder_content import BuilderData, BuilderSave, to_content, export_issues
 from .db import get_db, Resume, ResumeVersion, BuilderDraft, EditorDraft, EditorVersion, now, uid
@@ -40,7 +40,8 @@ def preview(data: BuilderData, request: Request, owner_id=Depends(owner)):
 @router.get('')
 def list_drafts(offset: int = 0, limit: int = 50, owner_id=Depends(owner), db: DBSession = Depends(get_db)):
     if offset < 0 or not 1 <= limit <= 100: raise HTTPException(422, 'Invalid pagination range.')
-    rows = db.execute(select(BuilderDraft, Resume, EditorDraft).join(Resume, Resume.id == BuilderDraft.resume_id).join(EditorDraft, EditorDraft.resume_id == Resume.id).where(Resume.owner == owner_id, Resume.expires_at > now()).order_by(BuilderDraft.updated_at.desc()).offset(offset).limit(limit)).all()
+    rows = [(draft,resume,db.get(EditorDraft,resume.id)) for draft,resume in resume_children(db,BuilderDraft,owner_id,order_field='updated_at')]
+    rows = [row for row in rows if row[2] is not None][offset:offset+limit]
     return {'items': [serialize(draft, resume, editor) for draft, resume, editor in rows], 'offset': offset, 'limit': limit}
 
 
@@ -85,10 +86,10 @@ def save(identifier: str, payload: BuilderSave, request: Request, owner_id=Depen
     text = content.text()
     expected_editor_revision = draft.editor_revision
     revision, editor_revision = draft.revision + 1, editor.revision + 1
-    a = db.execute(update(BuilderDraft).where(BuilderDraft.resume_id == identifier, BuilderDraft.revision == payload.revision).values(data=data.model_dump(), revision=revision, source_hash=fingerprint(text), editor_revision=editor_revision, updated_at=now()))
-    b = db.execute(update(EditorDraft).where(EditorDraft.resume_id == identifier, EditorDraft.revision == expected_editor_revision).values(content=content.model_dump(), revision=editor_revision, source_hash=fingerprint(text), updated_at=now()))
-    c = db.execute(update(Resume).where(Resume.id == identifier, Resume.text == resume.text).values(text=text, filename=((data.contact.name.strip() or 'Untitled')[:100] + ' — Resume'), updated_at=now()))
-    if any(result.rowcount != 1 for result in [a, b, c]):
+    a = change_where(db,BuilderDraft,[('resume_id','==',identifier),('revision','==',payload.revision)],dict(data=data.model_dump(),revision=revision,source_hash=fingerprint(text),editor_revision=editor_revision,updated_at=now()))
+    b = change_where(db,EditorDraft,[('resume_id','==',identifier),('revision','==',expected_editor_revision)],dict(content=content.model_dump(),revision=editor_revision,source_hash=fingerprint(text),updated_at=now()))
+    c = change_where(db,Resume,[('id','==',identifier),('text','==',resume.text)],dict(text=text,filename=((data.contact.name.strip() or 'Untitled')[:100] + ' — Resume'),updated_at=now()))
+    if any(result != 1 for result in [a, b, c]):
         db.rollback()
         raise HTTPException(409, 'The resume changed while saving. Reload before retrying; no changes were overwritten.')
     db.add_all([ResumeVersion(resume_id=identifier, text=text), EditorVersion(resume_id=identifier, revision=editor_revision, content=content.model_dump(), change_summary='Saved guided builder step '+str(data.step))])

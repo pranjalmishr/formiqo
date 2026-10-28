@@ -14,8 +14,9 @@ from datetime import timedelta
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from sqlalchemy.exc import IntegrityError
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, delete
+from .persistence import find, first, remove_where, ping
 from sqlalchemy.orm import Session as DBSession
 from .config import settings
 from .db import Session, Resume, Analysis, ResumeVersion, EditorDraft, EditorVersion, BuilderDraft, SourceDocument, init_db, get_db, now, uid
@@ -38,15 +39,11 @@ def expire_records():
     from .converter_api import cleanup_jobs
     cleanup_jobs()
     with Session() as db:
-        expired = db.scalars(select(Resume).where(Resume.expires_at < now())).all()
+        expired = find(db, Resume, [('expires_at','<',now())])
         for resume in expired:
             remove_source(resume.id, include_original=True)
-            db.execute(delete(SourceDocument).where(SourceDocument.resume_id == resume.id))
-            db.execute(delete(Analysis).where(Analysis.resume_id == resume.id))
-            db.execute(delete(ResumeVersion).where(ResumeVersion.resume_id == resume.id))
-            db.execute(delete(EditorVersion).where(EditorVersion.resume_id == resume.id))
-            db.execute(delete(EditorDraft).where(EditorDraft.resume_id == resume.id))
-            db.execute(delete(BuilderDraft).where(BuilderDraft.resume_id == resume.id))
+            for model in [SourceDocument,Analysis,ResumeVersion,EditorVersion,EditorDraft,BuilderDraft]:
+                remove_where(db,model,[('resume_id','==',resume.id)])
             db.delete(resume)
         db.commit()
     # Interrupted requests can leave sources before a DB row was created.
@@ -71,7 +68,9 @@ async def janitor():
         except Exception as exc:
             _cleanup_error = type(exc).__name__
             logging.getLogger('formiqo').error('Retention cleanup failed (%s); retrying in 60 seconds.', _cleanup_error)
-        await asyncio.sleep(60)
+        # Avoid continuous free-tier database reads just for retention cleanup.
+        # Ownership/expiry is still checked on every request immediately.
+        await asyncio.sleep(900 if settings.database_backend=='firestore' else 60)
 
 
 @asynccontextmanager
@@ -81,7 +80,7 @@ async def lifespan(app):
     from .converter_api import recover_jobs
     recover_jobs()
     with Session() as db:
-        for r in db.scalars(select(Resume).where(Resume.status.in_(['queued', 'processing']))):
+        for r in find(db,Resume,[('status','in',['queued','processing'])]):
             r.status = 'failed'
             r.error = 'Processing was interrupted by a server restart. Please upload again.'
             remove_source(r.id)
@@ -95,6 +94,11 @@ async def lifespan(app):
 
 app = FastAPI(title='Formiqo — One Platform, Every Document', version='1.0.0', lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=[settings.allowed_origin], allow_credentials=True, allow_methods=['GET', 'POST', 'PATCH', 'DELETE'], allow_headers=['Content-Type'])
+
+
+@app.exception_handler(IntegrityError)
+async def persistence_conflict(request, exc):
+    return JSONResponse({'detail':'A conflicting record already exists. Reload or sign in before retrying.'},status_code=409)
 
 
 @app.middleware('http')
@@ -199,14 +203,14 @@ async def process_document(identifier, path, ext):
 
 @app.get('/api/health')
 def health(db: DBSession = Depends(get_db)):
-    db.execute(select(1))
-    return {'status': 'degraded' if _cleanup_error else 'ok', 'product': 'Formiqo', 'cleanup_last_success': _cleanup_success, 'cleanup_error': _cleanup_error, 'modules': ['ats-checker', 'resume-editor', 'resume-builder', 'document-converter', 'document-library', 'accounts', 'job-matcher', 'resume-assistant']}
+    ping(db)
+    return {'status': 'degraded' if _cleanup_error else 'ok', 'product': 'Formiqo', 'database_backend':settings.database_backend,'cleanup_last_success': _cleanup_success, 'cleanup_error': _cleanup_error, 'modules': ['ats-checker', 'resume-editor', 'resume-builder', 'document-converter', 'document-library', 'accounts', 'job-matcher', 'resume-assistant']}
 
 
 @app.get('/api/config')
 def configuration(response: Response, owner_id=Depends(owner)):
     import shutil
-    return {'max_upload_mb': settings.max_upload_mb, 'max_pages': settings.max_pages, 'retention_hours': settings.retention_hours, 'account_retention_days': settings.account_retention_days, 'guest_allowed': settings.guest_allowed, 'guest_limit_per_hour': settings.guest_limit_per_hour, 'ai_available': bool(settings.llm_api_key), 'ai_provider': settings.llm_base_url, 'ai_model': settings.llm_model, 'ocr_available': bool(shutil.which('tesseract')), 'weights': settings.scoring_weights, 'accounts_enabled': settings.accounts_enabled, 'email_available': bool(settings.smtp_host)}
+    return {'max_upload_mb': settings.max_upload_mb, 'max_pages': settings.max_pages, 'retention_hours': settings.retention_hours, 'account_retention_days': settings.account_retention_days, 'guest_allowed': settings.guest_allowed, 'guest_limit_per_hour': settings.guest_limit_per_hour, 'ai_available': bool(settings.llm_api_key), 'ai_provider': settings.llm_base_url, 'ai_model': settings.llm_model, 'ocr_available': bool(shutil.which('tesseract')), 'weights': settings.scoring_weights, 'accounts_enabled': settings.accounts_enabled, 'email_available': bool(settings.smtp_host),'database_backend':settings.database_backend,'firebase_project_id':settings.firebase_project_id if settings.database_backend=='firestore' else None,'binary_storage':'private backend files'}
 
 
 @app.post('/api/resumes/upload', status_code=202)
@@ -243,11 +247,11 @@ async def upload(request: Request, background: BackgroundTasks, file: UploadFile
 def list_resumes(offset: int = 0, limit: int = 50, owner_id=Depends(owner), db: DBSession = Depends(get_db)):
     if offset < 0 or not 1 <= limit <= 100:
         raise HTTPException(422, 'Invalid pagination range.')
-    records = db.scalars(select(Resume).where(Resume.owner == owner_id, Resume.expires_at > now()).order_by(Resume.updated_at.desc()).offset(offset).limit(limit)).all()
+    records = find(db,Resume,[('owner','==',owner_id),('expires_at','>',now())],[('updated_at','desc')],limit=limit,offset=offset)
     items = []
     for r in records:
         item = serialize_resume(r, False)
-        latest = db.scalar(select(Analysis).where(Analysis.resume_id == r.id).order_by(Analysis.created_at.desc()).limit(1))
+        latest = first(db,Analysis,[('resume_id','==',r.id)],[('created_at','desc')])
         item['latest_analysis_id'] = latest.id if latest else None
         item['latest_score'] = latest.overall_score if latest else None
         item['has_builder'] = db.get(BuilderDraft, r.id) is not None
@@ -277,7 +281,7 @@ def save_resume(identifier: str, data: DraftPatch, owner_id=Depends(owner), db: 
 @app.get('/api/resumes/{identifier}/versions')
 def versions(identifier: str, owner_id=Depends(owner), db: DBSession = Depends(get_db)):
     require_resume(db, identifier, owner_id)
-    records = db.scalars(select(ResumeVersion).where(ResumeVersion.resume_id == identifier).order_by(ResumeVersion.created_at.desc()).limit(20)).all()
+    records = find(db,ResumeVersion,[('resume_id','==',identifier)],[('created_at','desc')],limit=20)
     return {'items': [{'id': v.id, 'text': v.text, 'created_at': v.created_at.isoformat()} for v in records]}
 
 
@@ -292,12 +296,8 @@ def download_draft(identifier: str, owner_id=Depends(owner), db: DBSession = Dep
 @app.delete('/api/resumes/{identifier}', status_code=204)
 def delete_resume(identifier: str, owner_id=Depends(owner), db: DBSession = Depends(get_db)):
     r = require_resume(db, identifier, owner_id)
-    db.execute(delete(Analysis).where(Analysis.resume_id == identifier))
-    db.execute(delete(ResumeVersion).where(ResumeVersion.resume_id == identifier))
-    db.execute(delete(EditorVersion).where(EditorVersion.resume_id == identifier))
-    db.execute(delete(EditorDraft).where(EditorDraft.resume_id == identifier))
-    db.execute(delete(BuilderDraft).where(BuilderDraft.resume_id == identifier))
-    db.execute(delete(SourceDocument).where(SourceDocument.resume_id == identifier))
+    for model in [Analysis,ResumeVersion,EditorVersion,EditorDraft,BuilderDraft,SourceDocument]:
+        remove_where(db,model,[('resume_id','==',identifier)])
     db.delete(r)
     db.commit()
     remove_source(identifier, include_original=True)

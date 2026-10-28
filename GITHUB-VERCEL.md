@@ -14,28 +14,29 @@
 - Vercel project [formiqo](https://vercel.com/pranjal-mishras-projects-52970ad6/formiqo)
   was created and linked. Verified settings: root `frontend`, framework Other, Node 22.x,
   install `npm ci`, build `npm run build:vercel`, no Output Directory override.
-- The user subsequently selected Firebase project **nitre-d8cdd** for the backend/database.
-  Project access and a synthetic Firestore create/read/delete check succeeded. Billing is disabled,
-  the specified storage bucket does not exist, and no Cloud Run backend is deployed. See
-  [Firebase verification and remaining work](firebase/README.md). The app's relational database
-  is not migrated by this project association. No paid resources were created.
+- The user selected **ordinary Firestore / Spark, with no billing account**, for structured data.
+  The local backend now uses Firestore in **nitre-d8cdd** as primary persistence. Migrated and
+  read-back verified 212 existing records, with a private local backup. See
+  [Firestore setup, migration and limits](firebase/README.md). Billing remains disabled and no
+  paid resources were created. Files and conversion execution remain on the local Python backend.
   GitHub auto-deploy integration stays disconnected until a live backend origin is available.
 - Do not paste access tokens into source or chat; use the CLIs' browser/device login.
 
 ## Hosting split (required)
 
 Vercel serves the React app. The existing FastAPI backend uses long-running native conversion
-workers, local private files, a cleanup loop and PostgreSQL. Do **not** deploy it as an ephemeral
+workers, local private files, a cleanup loop and Firestore (or optional SQL). Do **not** deploy it as an ephemeral
 Vercel Function: uploads, queued jobs and retained outputs would not be durable.
 
-Deploy [backend/Dockerfile](backend/Dockerfile) to a persistent container host, with managed
-PostgreSQL and a private volume. Keep a single API instance. The existing [compose.yaml](compose.yaml)
+Deploy [backend/Dockerfile](backend/Dockerfile) to a persistent container host, with a private
+volume and server-side Google credentials for Firestore. Keep a single API instance. The existing [compose.yaml](compose.yaml)
 is available for a server deployment; see [DEPLOYMENT.md](DEPLOYMENT.md) for security and backup gates.
 This change does not provision a paid container host or database.
 
 On the backend set:
 
-- `DATABASE_URL`: your PostgreSQL connection string (a backend secret, never a Vercel frontend variable).
+- `DATABASE_BACKEND=firestore`, `FIREBASE_PROJECT_ID=nitre-d8cdd` and server-side Google ADC.
+  PostgreSQL is an optional alternative, not required by the chosen no-billing Firestore setup.
 - `STORAGE_DIR`: the mounted private volume directory.
 - `PUBLIC_URL` and `ALLOWED_ORIGIN`: the actual production frontend HTTPS origin, exactly.
 - `ALLOWED_HOSTS`: a JSON list containing the backend hostname and the actual forwarded frontend

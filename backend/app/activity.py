@@ -1,7 +1,7 @@
 """Actual owned activity and honest single-instance per-IP usage counters."""
 import time
 from fastapi import APIRouter,Depends,Request
-from sqlalchemy import select
+from .persistence import find, resume_children
 from sqlalchemy.orm import Session as DBSession
 from .db import get_db,Resume,Analysis,EditorVersion,ConversionJob,now
 from .storage import owner,_rates,_lock
@@ -13,11 +13,11 @@ router=APIRouter(prefix='/api',tags=['Workspace activity'])
 @router.get('/activity')
 def activity(owner_id=Depends(owner),db:DBSession=Depends(get_db)):
     items=[]
-    rows=db.execute(select(Analysis,Resume).join(Resume,Resume.id==Analysis.resume_id).where(Analysis.owner==owner_id,Resume.owner==owner_id,Resume.expires_at>now()).order_by(Analysis.created_at.desc()).limit(10)).all()
+    rows=resume_children(db,Analysis,owner_id,limit=10)
     for row,resume in rows: items.append({'id':row.id,'label':'Resume analyzed','detail':resume.filename+' · '+str(row.overall_score)+'/100 estimated','at':row.created_at.isoformat(),'url':'/app/results/'+row.id})
-    rows=db.execute(select(EditorVersion,Resume).join(Resume,Resume.id==EditorVersion.resume_id).where(Resume.owner==owner_id,Resume.expires_at>now()).order_by(EditorVersion.created_at.desc()).limit(10)).all()
+    rows=resume_children(db,EditorVersion,owner_id,limit=10)
     for row,resume in rows: items.append({'id':row.id,'label':'Resume draft saved','detail':resume.filename+' · '+row.change_summary,'at':row.created_at.isoformat(),'url':'/app/editor?resume='+resume.id})
-    rows=db.scalars(select(ConversionJob).where(ConversionJob.owner==owner_id,ConversionJob.expires_at>now()).order_by(ConversionJob.created_at.desc()).limit(10)).all()
+    rows=find(db,ConversionJob,[('owner','==',owner_id),('expires_at','>',now())],[('created_at','desc')],limit=10)
     for row in rows: items.append({'id':row.id,'label':'Document conversion · '+row.status,'detail':row.source_filename+' · '+row.source_format.upper()+' → '+row.target_format.upper(),'at':(row.completed_at or row.created_at).isoformat(),'url':'/app/converter?job='+row.id})
     items.sort(key=lambda row:row['at'],reverse=True)
     return {'items':items[:15]}

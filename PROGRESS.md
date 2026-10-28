@@ -52,8 +52,10 @@ history) and covered by the existing conversion/document-tool suites (41 tests).
 
 ## Current verified state
 
-- Backend: 173 passed. Frontend unit: 40 passed. `tsc -b` and `npm run build`: clean.
-- Browser e2e (Chrome, live servers): `e2e`, `editor`, `builder`, `remaining`, `premium`, `studio-details` and `records` all PASS.
+- Backend: 184 passed (including 11 Firestore/size/migration tests). Frontend unit: 42 passed.
+  `tsc -b` and `npm run build`: clean.
+- Browser e2e against the live Firestore-backed app (Chrome): `e2e`, `editor`, `builder`,
+  `remaining`, `premium`, `studio-details` and `records` all PASS.
 - Word page counts were measured with LibreOffice 26.2 (in `/tmp`, measurement only, not an app dependency). Microsoft Word may differ by a line or two with different installed fonts.
 
 ## GitHub / Vercel publication request
@@ -80,14 +82,21 @@ history) and covered by the existing conversion/document-tool suites (41 tests).
 - User provided Firebase web config for **nitre-d8cdd**; its API key was not copied into source.
 - Firebase CLI authenticated successfully; the active project and default Firestore Native
   database (`nam5`) were read back from the live APIs. Saved the project alias in `.firebaserc`.
-- Verified an authenticated synthetic Firestore document write/read/delete; cleanup succeeded.
-  No resume content or score records were migrated and no existing security rules were changed.
-- Live billing check: disabled, with no billing account. Cloud Run API is disabled/unavailable;
-  the supplied Storage bucket returned 404. No Cloud SQL instances exist.
-- **Blocked:** Blaze billing and a confirmed database migration path before provisioning.
-  Firestore is not a SQLAlchemy replacement. The existing backend/database remain unchanged;
-  live Firebase hosting, storage integration and data migration are not claimed complete.
-- Details and next implementation steps: [firebase/README.md](firebase/README.md).
+- The user clarified **ordinary Firestore, no billing account**. Implemented native primary
+  persistence with explicit record queries, atomic transactions, revision/unique-email/token
+  protection and document-size guards. SQL remains available for local regression/rollback.
+- Migrated 212 existing structured records atomically to `formiqo/v1` in `nitre-d8cdd`; every
+  record was read back and compared. Backed up SQLite privately; source DB was not deleted.
+- Switched the local app to Firestore through an ignored `.env`. ADC stays outside Git with
+  mode 0600. The browser API key is not used as a server credential. Settings shows the provider.
+- Existing default-deny Firebase rules unchanged; anonymous probe 403. Final billing check:
+  **disabled, no billing account attached**. No Cloud Run, Functions, Cloud SQL or buckets created.
+- PDF/DOCX/image binaries remain local; public Python hosting is still pending. Firestore
+  data persistence is complete; a public backend/Vercel deployment is not claimed complete.
+- Slower cloud requests exposed initialization/save-status races. Fixed duplicate guest-cookie
+  initialization and stale save notices, added two frontend tests, and updated continuation e2e
+  to await the actual save revision rather than assume v4 after markup normalization.
+- Details: [firebase/README.md](firebase/README.md). CI now runs a demo-project Firestore emulator.
 
 ## Next candidates (not started)
 

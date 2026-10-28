@@ -174,11 +174,23 @@ class DocumentRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
-engine = create_engine(settings.database_url, connect_args={'check_same_thread': False} if settings.database_url.startswith('sqlite') else {}, pool_pre_ping=True, hide_parameters=True)
-Session = sessionmaker(engine, expire_on_commit=False)
+engine = create_engine(settings.database_url, connect_args={'check_same_thread': False} if settings.database_url.startswith('sqlite') else {}, pool_pre_ping=True, hide_parameters=True) if settings.database_backend=='sql' else None
+_sql_session = sessionmaker(engine, expire_on_commit=False) if engine is not None else None
+
+
+def Session():
+    if settings.database_backend=='firestore':
+        from .firestore_store import FirestoreUnitOfWork,client_for
+        return FirestoreUnitOfWork(client_for(settings.firebase_project_id,settings.firebase_database_id,settings.firebase_credentials_file),settings.firebase_namespace)
+    if _sql_session is None:
+        raise RuntimeError('SQL was not configured at startup')
+    return _sql_session()
 
 
 def init_db():
+    if settings.database_backend=='firestore':
+        with Session() as db:db.ping()
+        return
     Base.metadata.create_all(engine)
     # create_all skips indexes on pre-existing tables; add the additive records index.
     from sqlalchemy import inspect

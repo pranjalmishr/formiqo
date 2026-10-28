@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, BackgroundTasks, Response
 from fastapi.responses import FileResponse
-from sqlalchemy import select, delete
+from .persistence import find, remove_where
 from sqlalchemy.orm import Session as DBSession
 from PIL import Image
 from .config import settings
@@ -204,7 +204,7 @@ async def create_job(request:Request,background:BackgroundTasks,files:list[Uploa
 @router.get('/jobs')
 def list_jobs(offset:int=0,limit:int=50,owner_id=Depends(owner),db:DBSession=Depends(get_db)):
     if offset<0 or not 1<=limit<=100: raise HTTPException(422,'Invalid pagination range.')
-    rows=db.scalars(select(ConversionJob).where(ConversionJob.owner==owner_id,ConversionJob.expires_at>now()).order_by(ConversionJob.created_at.desc()).offset(offset).limit(limit)).all()
+    rows=find(db,ConversionJob,[('owner','==',owner_id),('expires_at','>',now())],[('created_at','desc')],limit=limit,offset=offset)
     return {'items':[serialize(r) for r in rows],'offset':offset,'limit':limit}
 
 
@@ -228,17 +228,17 @@ def download(identifier:str,index:int=0,inline:bool=False,owner_id=Depends(owner
 @router.delete('/jobs/{identifier}',status_code=204)
 def delete_job(identifier:str,owner_id=Depends(owner),db:DBSession=Depends(get_db)):
     row=require_job(db,identifier,owner_id)
-    db.execute(delete(DocumentRecord).where(DocumentRecord.job_id==identifier));db.delete(row);db.commit();remove_job_files(identifier)
+    remove_where(db,DocumentRecord,[('job_id','==',identifier)]);db.delete(row);db.commit();remove_job_files(identifier)
     return Response(status_code=204)
 
 
 def cleanup_jobs():
     with Session() as db:
-        rows=db.scalars(select(ConversionJob).where(ConversionJob.expires_at<now())).all()
+        rows=find(db,ConversionJob,[('expires_at','<',now())])
         for row in rows:
-            db.execute(delete(DocumentRecord).where(DocumentRecord.job_id==row.id));db.delete(row);remove_job_files(row.id)
-        db.execute(delete(AuthSession).where(AuthSession.expires_at<now()))
-        db.execute(delete(AuthToken).where(AuthToken.expires_at<now()))
+            remove_where(db,DocumentRecord,[('job_id','==',row.id)]);db.delete(row);remove_job_files(row.id)
+        remove_where(db,AuthSession,[('expires_at','<',now())])
+        remove_where(db,AuthToken,[('expires_at','<',now())])
         db.commit()
     root=settings.storage_dir/'jobs'
     if root.exists():
@@ -250,6 +250,6 @@ def cleanup_jobs():
 
 def recover_jobs():
     with Session() as db:
-        for row in db.scalars(select(ConversionJob).where(ConversionJob.status.in_(['queued','processing']))):
+        for row in find(db,ConversionJob,[('status','in',['queued','processing'])]):
             row.status='failed';row.error='Server restarted during conversion. Upload again to retry safely.';row.error_code='interrupted';row.completed_at=now();remove_job_files(row.id)
         db.commit()
