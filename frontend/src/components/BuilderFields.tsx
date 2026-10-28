@@ -1,0 +1,16 @@
+import { useFormContext, type FieldPath } from 'react-hook-form';
+import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
+import { Button } from './ui/button';
+import type { BuilderData } from '../lib/builder';
+import type { ReactNode } from 'react';
+export function BuilderField({name,label,multiline=false,placeholder='',hint='',maxLength=180,type='text',disabled=false}:{name:FieldPath<BuilderData>;label:string;multiline?:boolean;placeholder?:string;hint?:string;maxLength?:number;type?:string;disabled?:boolean}) {
+ const {register,getFieldState,formState}=useFormContext<BuilderData>();const {error}=getFieldState(name,formState);const id='builder-'+name;
+ return <div className="min-w-0"><label htmlFor={id} className="label">{label}</label>{multiline?<textarea id={id} {...register(name)} disabled={disabled} maxLength={maxLength} placeholder={placeholder} aria-invalid={!!error} aria-describedby={hint||error?id+'-hint':undefined} className="input min-h-32 leading-7"/>:<input id={id} {...register(name)} disabled={disabled} type={type} maxLength={maxLength} placeholder={placeholder} aria-invalid={!!error} aria-describedby={hint||error?id+'-hint':undefined} className="input"/>}{(hint||error)&&<p id={id+'-hint'} role={error?'alert':undefined} className={error?'field-error':'mt-2 text-xs leading-5 text-slate-500'}>{error?.message||hint}</p>}</div>;
+}
+export function EntryCard({title,index,count,onRemove,onMove,children}:{title:string;index:number;count:number;onRemove:()=>void;onMove:(delta:number)=>void;children:ReactNode}){
+ return <fieldset className="rounded-xl border border-slate-200 p-4 md:p-5"><legend className="px-2 text-xs font-semibold text-ink">{title} {index+1}</legend><div className="mb-3 flex justify-end gap-1"><Button type="button" variant="ghost" className="!px-3" aria-label={`Move ${title.toLowerCase()} ${index+1} up`} disabled={index===0} onClick={()=>onMove(-1)}><ArrowUp size={14}/></Button><Button type="button" variant="ghost" className="!px-3" aria-label={`Move ${title.toLowerCase()} ${index+1} down`} disabled={index===count-1} onClick={()=>onMove(1)}><ArrowDown size={14}/></Button><Button type="button" variant="ghost" className="!px-3" aria-label={`Remove ${title.toLowerCase()} ${index+1}`} onClick={onRemove}><Trash2 size={14}/></Button></div><div className="space-y-4">{children}</div></fieldset>;
+}
+export function BuilderDates({kind,index}:{kind:'experience'|'education';index:number}){
+ const {register,watch,setValue}=useFormContext<BuilderData>();const current=watch(`${kind}.${index}.current`);
+ return <><div className="grid gap-4 sm:grid-cols-2"><BuilderField name={`${kind}.${index}.start`} label="Start date" placeholder="YYYY or YYYY-MM" maxLength={7}/><BuilderField name={`${kind}.${index}.end`} label="End date" placeholder={current?'Present':'YYYY or YYYY-MM'} maxLength={7} disabled={current}/></div><label className="flex min-h-11 items-center gap-2 text-xs text-slate-600"><input type="checkbox" {...register(`${kind}.${index}.current`,{onChange:event=>{if(event.target.checked)setValue(`${kind}.${index}.end`,'',{shouldDirty:true,shouldValidate:true})}})}/>{kind==='experience'?'I currently work here':'I am currently studying here'}</label></>;
+}

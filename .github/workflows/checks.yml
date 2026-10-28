@@ -1,0 +1,62 @@
+name: Formiqo checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ACCOUNTS_ENABLED: 'true'
+      GUEST_ALLOWED: 'true'
+      OFFICE_ENABLED: 'false'
+      SMTP_HOST: ''
+      LLM_API_KEY: ''
+      ALLOWED_ORIGIN: http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Backend tests and dependency audit
+        working-directory: backend
+        run: |
+          python -m pip install -r requirements.txt pip-audit
+          python -m playwright install --with-deps chromium
+          python -m pytest -q
+          pip-audit -r requirements.txt
+      - name: Frontend tests, deployment checks, build and dependency audit
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+          npm run test:deployment
+          npm run build
+          npm audit --audit-level=high
+          npx playwright install --with-deps chromium
+      - name: Start API
+        working-directory: backend
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 > /tmp/formiqo-api.log 2>&1 < /dev/null &
+      - name: Browser workflows
+        working-directory: frontend
+        run: |
+          nohup npm run dev > /tmp/formiqo-ui.log 2>&1 < /dev/null &
+          for i in $(seq 1 30); do curl -fsS http://localhost:5173/api/health && break || sleep 1; done
+          npm run test:e2e
+      - name: Save synthetic browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formiqo-browser-evidence
+          path: frontend/test-results/
+          retention-days: 7

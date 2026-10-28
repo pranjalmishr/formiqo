@@ -1,0 +1,25 @@
+# Credentials belong in the hosting provider's environment, never GitHub.
+**/.env
+**/.env.*
+!**/.env.example
+**/.vercel/
+**/*.pem
+**/*.key
+**/credentials.json
+**/.venv*/
+**/__pycache__/
+**/.pytest_cache/
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/private-storage/
+**/test-results/
+**/playwright-report/
+**/coverage/
+**/*.log
+**/.DS_Store

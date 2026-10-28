@@ -1,0 +1,28 @@
+import React,{lazy,Suspense} from 'react';
+import ReactDOM from 'react-dom/client';
+import {createBrowserRouter,createRoutesFromElements,Navigate,RouterProvider,Route} from 'react-router-dom';
+import {AppProvider,Shell} from './shell';
+import './styles.css';
+import './product.css';
+import './studio-details.css';
+const Landing=lazy(()=>import('./pages/Landing'));
+const Checker=lazy(()=>import('./pages/Checker'));
+const Results=lazy(()=>import('./pages/AnalysisWorkspace'));
+const Documents=lazy(()=>import('./pages/Documents'));
+const Dashboard=lazy(()=>import('./pages/Dashboard'));
+const Info=lazy(()=>import('./pages/Info'));
+const Studio=lazy(()=>import('./pages/Studio'));
+const Templates=lazy(()=>import('./pages/Templates'));
+const ImportResume=lazy(()=>import('./pages/ImportResume'));
+const ToolsEntry=lazy(()=>import('./pages/ToolsEntry'));
+const ToolWorkspace=lazy(()=>import('./pages/ToolWorkspace'));
+// Compatibility views keep existing deep links/features available during migration.
+const TextEditor=lazy(()=>import('./pages/Editor'));
+const GuidedIntake=lazy(()=>import('./pages/Builder'));
+const LegacyConverter=lazy(()=>import('./pages/Converter'));
+const ConversionHistory=lazy(()=>import('./pages/Converter').then(module=>({default:module.ConversionHistory})));
+const Settings=lazy(()=>import('./pages/Settings'));
+const Matcher=lazy(()=>import('./pages/Matcher'));
+const Records=lazy(()=>import('./pages/Records'));
+const router=createBrowserRouter(createRoutesFromElements(<><Route path="/" element={<Suspense fallback={<p className="p-10" role="status">Loading Formiqo…</p>}><Landing/></Suspense>}/><Route element={<Shell/>}><Route path="/app" element={<Dashboard/>}/><Route path="/app/checker" element={<Checker/>}/><Route path="/app/editor" element={<Studio/>}/><Route path="/app/builder" element={<Studio/>}/><Route path="/app/templates" element={<Templates/>}/><Route path="/app/import" element={<ImportResume/>}/><Route path="/app/converter" element={<ToolsEntry/>}/><Route path="/app/pdf-tools" element={<Navigate to="/app/converter?category=pdf" replace/>}/><Route path="/app/image-tools" element={<Navigate to="/app/converter?category=image" replace/>}/><Route path="/app/tools/:toolId" element={<ToolWorkspace/>}/><Route path="/app/editor/text" element={<TextEditor/>}/><Route path="/app/builder/intake" element={<GuidedIntake/>}/><Route path="/app/converter/legacy" element={<LegacyConverter/>}/><Route path="/app/history" element={<ConversionHistory/>}/><Route path="/app/settings" element={<Settings/>}/><Route path="/app/matcher" element={<Matcher/>}/><Route path="/app/records" element={<Records/>}/><Route path="/app/results/:id" element={<Results/>}/><Route path="/app/documents" element={<Documents/>}/><Route path="/app/:tool" element={<Info/>}/><Route path="*" element={<Info/>}/></Route></>));
+ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><AppProvider><RouterProvider router={router}/></AppProvider></React.StrictMode>);

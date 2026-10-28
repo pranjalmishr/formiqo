@@ -1,0 +1,14 @@
+# Upload source only; never local data, credentials, dependencies, or test output.
+.git/
+.vercel/
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+test-results/
+playwright-report/
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store

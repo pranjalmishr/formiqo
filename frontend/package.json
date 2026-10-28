@@ -1,0 +1,10 @@
+{
+  "name": "formiqo-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {"node": ">=22.12.0"},
+  "scripts": {"dev": "vite --host 127.0.0.1", "build": "tsc -b && vite build", "build:vercel": "node scripts/vercel-build.mjs", "test:deployment": "node --test scripts/vercel-build.node.mjs", "test": "vitest run", "test:e2e": "node tests/e2e.cjs && node tests/editor.e2e.cjs && node tests/builder.e2e.cjs && node tests/remaining.e2e.cjs && node tests/premium.e2e.cjs && node tests/studio-details.e2e.cjs && node tests/records.e2e.cjs"},
+  "dependencies": {"react": "^18.3.1", "react-dom": "^18.3.1", "react-router-dom": "^7.18.4", "react-hook-form": "^7.54.0", "@hookform/resolvers": "5.2.2", "zod": "^4.6.7", "lucide-react": "^0.468.0", "recharts": "^3.10.1", "@radix-ui/react-dialog": "^1.1.6", "@radix-ui/react-slot": "^1.1.2", "class-variance-authority": "^0.7.1", "clsx": "^2.1.1", "tailwind-merge": "^2.6.0", "@tiptap/react": "3.32.0", "@tiptap/pm": "3.32.0", "@tiptap/starter-kit": "3.32.0"},
+  "devDependencies": {"typescript": "~5.7.2", "vite": "^8.3.5", "@vitejs/plugin-react": "^6.1.2", "@types/react": "^18.3.18", "@types/react-dom": "^18.3.5", "tailwindcss": "^3.4.17", "postcss": "^8.4.49", "autoprefixer": "^10.4.20", "vitest": "^5.0.5", "@testing-library/react": "^16.1.0", "@testing-library/jest-dom": "^6.6.3", "jsdom": "^25.0.1", "playwright": "^1.64.1", "@axe-core/playwright": "^4.14.0"}
+}

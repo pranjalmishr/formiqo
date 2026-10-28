@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: resumeai
+      POSTGRES_USER: resumeai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U resumeai -d resumeai']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://resumeai:${POSTGRES_PASSWORD}@db:5432/resumeai
+      STORAGE_DIR: /app/private-storage
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-http://localhost:8080}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-["localhost","127.0.0.1","backend"]}
+      SECURE_COOKIE: ${SECURE_COOKIE:-false}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      ACCOUNTS_ENABLED: ${ACCOUNTS_ENABLED:-true}
+      GUEST_ALLOWED: ${GUEST_ALLOWED:-true}
+      ACCOUNT_RETENTION_DAYS: ${ACCOUNT_RETENTION_DAYS:-365}
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+      OFFICE_ENABLED: ${OFFICE_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Formiqo <noreply@example.com>}
+    volumes:
+      - private-storage:/app/private-storage
+    depends_on:
+      db:
+        condition: service_healthy
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 4g
+    cpus: 2
+    pids_limit: 128
+  frontend:
+    build: ./frontend
+    ports: ['127.0.0.1:8080:80']
+    depends_on:
+      backend:
+        condition: service_healthy
+volumes:
+  postgres-data:
+  private-storage:

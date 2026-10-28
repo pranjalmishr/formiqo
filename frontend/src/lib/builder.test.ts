@@ -1,0 +1,9 @@
+import {describe,it,expect} from 'vitest';
+import {builderSchema,emptyBuilder,hasBuilderContent,steps} from './builder';
+describe('guided builder schema',()=>{
+ it('starts empty without fabricated facts',()=>{expect(builderSchema.safeParse(emptyBuilder).success).toBe(true);expect(hasBuilderContent(emptyBuilder)).toBe(false);expect(steps).toHaveLength(10);expect(emptyBuilder.template).toBe('classic-ats')});
+ it('validates contact details and unsafe URLs',()=>{expect(builderSchema.safeParse({...emptyBuilder,contact:{...emptyBuilder.contact,email:'bad'}}).success).toBe(false);expect(builderSchema.safeParse({...emptyBuilder,contact:{...emptyBuilder.contact,website:'javascript:alert(1)'}}).success).toBe(false);expect(builderSchema.safeParse({...emptyBuilder,contact:{...emptyBuilder.contact,website:'https://user:secret@example.com'}}).success).toBe(false)});
+ it('accepts genuine phone-only and student resumes',()=>{expect(builderSchema.safeParse({...emptyBuilder,contact:{...emptyBuilder.contact,name:'Alex',phone:'+1 555 010 1234'},education:[{institution:'Actual School',qualification:'Coursework',start:'2024',end:'',current:true,details:''}]}).success).toBe(true)});
+ it('rejects inconsistent dates',()=>{const role={title:'Engineer',employer:'Actual Co',location:'',highlights:'Verified contribution',start:'2024-12',end:'2024-01',current:false};expect(builderSchema.safeParse({...emptyBuilder,experience:[role]}).success).toBe(false);expect(builderSchema.safeParse({...emptyBuilder,experience:[{...role,start:'2023-01',current:true}]}).success).toBe(false)});
+ it('enforces unique section order and known templates',()=>{expect(builderSchema.safeParse({...emptyBuilder,section_order:Array(8).fill('summary')}).success).toBe(false);expect(builderSchema.safeParse({...emptyBuilder,template:'unsupported'}).success).toBe(false)});
+});

@@ -1,0 +1,7 @@
+.venv*
+.env
+__pycache__
+*.db
+private-storage
+tests
+.pytest_cache

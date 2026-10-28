@@ -1,0 +1,16 @@
+export interface ConversionCapabilities {matrix:Record<string,string[]>;max_upload_mb:number;max_files:number;max_pages:number;ocr_available:boolean;office_available:boolean;dpi_presets:number[];warnings:string[]}
+export interface InputInspection {format:string;pages:number|null;width?:number;height?:number;width_pt?:number;height_pt?:number;text_preview?:string;characters?:number}
+export interface ConversionOptions {dpi?:number;pages?:string;page_size?:string;orientation?:string;margin_mm?:number;_tool_id?:string;_phase?:string;_inspection?:InputInspection[];[key:string]:unknown}
+export interface ConversionJob {id:string;source_filename:string;source_format:string;target_format:string;status:'queued'|'processing'|'prepared'|'completed'|'failed';progress:number;outputs:{filename:string;format:string;size:number;mime:string;pages?:number;width?:number;height?:number}[];warnings:string[];error:string|null;error_code:string|null;duration_ms:number|null;created_at:string;completed_at:string|null;expires_at:string;settings:ConversionOptions;inputs?:{filename:string;format?:string;size?:number}[]}
+export function fileFormat(file:File){const ext=file.name.split('.').pop()?.toLowerCase()||'';return ext==='jpeg'?'jpg':ext}
+export function validateConversionFiles(files:File[],capabilities:ConversionCapabilities):string|null {
+ if(!files.length)return 'Choose at least one file.';
+ if(files.length>capabilities.max_files)return `Choose up to ${capabilities.max_files} files.`;
+ if(files.some(file=>file.size===0))return 'An uploaded file is empty.';
+ if(files.reduce((sum,file)=>sum+file.size,0)>capabilities.max_upload_mb*1024*1024)return `Total upload must be ${capabilities.max_upload_mb} MB or smaller.`;
+ if(files.some(file=>!capabilities.matrix[fileFormat(file)]))return 'A source format is unsupported on this backend. Legacy DOC is not DOCX; save it as DOCX or PDF first.';
+ if(files.length>1&&files.some(file=>!['jpg','png','webp'].includes(fileFormat(file))))return 'Multiple uploads are only supported for images to one combined PDF.';
+ return null;
+}
+export function startConversion(files:File[],target:string,settings:ConversionJob['settings'],onProgress:(n:number)=>void):Promise<ConversionJob>{return new Promise((resolve,reject)=>{const request=new XMLHttpRequest();request.open('POST','/api/converter/jobs');request.withCredentials=true;request.timeout=120000;request.upload.onprogress=event=>{if(event.lengthComputable)onProgress(Math.round(event.loaded/event.total*100))};request.onerror=()=>reject(new Error('Upload failed. Check your connection and retry.'));request.ontimeout=()=>reject(new Error('Upload timed out. Try smaller files.'));request.onload=()=>{try{const data=JSON.parse(request.responseText);if(request.status>=200&&request.status<300)resolve(data);else reject(new Error(typeof data.detail==='string'?data.detail:'Conversion request was rejected. Check the format and settings.'))}catch{reject(new Error('The server returned an unreadable response. Please retry.'))}};const data=new FormData();files.forEach(file=>data.append('files',file));data.append('target',target);data.append('options',JSON.stringify(settings));request.send(data)})}
+export function fileSize(bytes:number){return bytes<1024?bytes+' B':bytes<1024**2?(bytes/1024).toFixed(1)+' KB':(bytes/1024**2).toFixed(1)+' MB'}

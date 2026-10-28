@@ -1,0 +1,17 @@
+import {render,screen,fireEvent,waitFor} from '@testing-library/react';
+import {describe,it,expect,vi,beforeEach} from 'vitest';
+import {StudioWritingPanel} from './StudioWritingPanel';
+import {api} from '../lib/api';
+import type {StudioDraft} from '../lib/studio';
+vi.mock('../shell',()=>({useApp:()=>({config:{ai_available:true,ai_provider:'https://test-provider.invalid'}})}));
+vi.mock('../lib/api',()=>({api:vi.fn()}));
+const html='<p><strong>Actual Company</strong> — Built verified services for internal reports.</p>';
+const draft={resume_id:'synthetic',revision:2,content:{template:'classic-ats',style:{page_size:'A4'},sections:[{id:'experience',title:'Experience',html}]}} as StudioDraft;
+function setup(){const apply=vi.fn();const save=vi.fn().mockResolvedValue(draft);render(<StudioWritingPanel sectionId="experience" currentHTML={html} selection={{sectionId:'experience',sourceHTML:html,text:'Built verified services'}} save={save} onApply={apply} busy={false}/>);fireEvent.change(screen.getByLabelText('Source scope'),{target:{value:'selection'}});fireEvent.click(screen.getByLabelText(/I consent to external AI processing/));return {apply,save}}
+function response(suggested='Developed verified services'){return {id:'test-proposal',original:'Built verified services',suggested,notes:['Verify the source facts.'],requires_confirmation:true,notice:'Test fixture only.'}}
+beforeEach(()=>vi.mocked(api).mockReset());
+describe('reviewed studio writing',()=>{
+ it('applies only the selected passage after confirmation, preserving employer and surrounding facts',async()=>{const {apply}=setup();vi.mocked(api).mockResolvedValue(response());fireEvent.click(screen.getByRole('button',{name:'Generate reviewed suggestion'}));await screen.findByLabelText('Proposed · editable');expect(screen.getByRole('button',{name:'Apply suggestion'})).toBeDisabled();fireEvent.click(screen.getByLabelText(/I checked every fact/));fireEvent.click(screen.getByRole('button',{name:'Apply suggestion'}));expect(apply).toHaveBeenCalledWith('<p><strong>Actual Company</strong> — Developed verified services for internal reports.</p>','experience')});
+ it('rejects a proposal without replacing existing content',async()=>{const {apply}=setup();vi.mocked(api).mockResolvedValue(response());fireEvent.click(screen.getByRole('button',{name:'Generate reviewed suggestion'}));await screen.findByLabelText('Proposed · editable');fireEvent.click(screen.getByRole('button',{name:'Reject'}));expect(apply).not.toHaveBeenCalled();expect(screen.getByRole('status')).toHaveTextContent('Original content is unchanged')});
+ it('retains multiple generated versions and blocks unresolved placeholders',async()=>{setup();vi.mocked(api).mockResolvedValueOnce(response()).mockResolvedValueOnce(response('Developed verified services for [actual purpose]'));fireEvent.click(screen.getByRole('button',{name:'Generate reviewed suggestion'}));await screen.findByLabelText('Proposed · editable');fireEvent.click(screen.getByRole('button',{name:'Regenerate'}));await waitFor(()=>expect(screen.getAllByRole('option',{name:/Version/})).toHaveLength(2));fireEvent.click(screen.getByLabelText(/I checked every fact/));expect(screen.getByRole('button',{name:'Apply suggestion'})).toBeDisabled();fireEvent.change(screen.getByLabelText('Compare proposal versions'),{target:{value:'0'}});expect(screen.getByLabelText('Proposed · editable')).toHaveValue('Developed verified services')});
+});
