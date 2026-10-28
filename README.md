@@ -6,6 +6,8 @@ No random scores, fake conversions, invented activity or frontend API secrets.
 
 For GitHub and Vercel hosting, see [GitHub + Vercel setup](GITHUB-VERCEL.md).
 Vercel serves the frontend; persistent backend/database hosting is required separately.
+The requested Firebase project is linked; see [Firebase verification and blockers](firebase/README.md).
+Firestore connectivity is verified, but backend hosting and database migration are not deployed.
 
 ## Start here
 

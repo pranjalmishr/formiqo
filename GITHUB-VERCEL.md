@@ -14,10 +14,11 @@
 - Vercel project [formiqo](https://vercel.com/pranjal-mishras-projects-52970ad6/formiqo)
   was created and linked. Verified settings: root `frontend`, framework Other, Node 22.x,
   install `npm ci`, build `npm run build:vercel`, no Output Directory override.
-- No production deployment exists: the user confirmed there is no hosted backend yet and chose
-  **their own server/hosting account** instead of new paid Render resources. No provider, server
-  address or authenticated hosting connection was supplied, and no SSH host is configured on this
-  machine. Backend provisioning is blocked on those connection details. No paid resources were created.
+- The user subsequently selected Firebase project **nitre-d8cdd** for the backend/database.
+  Project access and a synthetic Firestore create/read/delete check succeeded. Billing is disabled,
+  the specified storage bucket does not exist, and no Cloud Run backend is deployed. See
+  [Firebase verification and remaining work](firebase/README.md). The app's relational database
+  is not migrated by this project association. No paid resources were created.
   GitHub auto-deploy integration stays disconnected until a live backend origin is available.
 - Do not paste access tokens into source or chat; use the CLIs' browser/device login.
 

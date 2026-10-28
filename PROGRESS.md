@@ -75,6 +75,20 @@ history) and covered by the existing conversion/document-tool suites (41 tests).
   Source push is complete; production awaits a live persistent backend origin.
   No working application URL is claimed.
 
+## Firebase backend/database request
+
+- User provided Firebase web config for **nitre-d8cdd**; its API key was not copied into source.
+- Firebase CLI authenticated successfully; the active project and default Firestore Native
+  database (`nam5`) were read back from the live APIs. Saved the project alias in `.firebaserc`.
+- Verified an authenticated synthetic Firestore document write/read/delete; cleanup succeeded.
+  No resume content or score records were migrated and no existing security rules were changed.
+- Live billing check: disabled, with no billing account. Cloud Run API is disabled/unavailable;
+  the supplied Storage bucket returned 404. No Cloud SQL instances exist.
+- **Blocked:** Blaze billing and a confirmed database migration path before provisioning.
+  Firestore is not a SQLAlchemy replacement. The existing backend/database remain unchanged;
+  live Firebase hosting, storage integration and data migration are not claimed complete.
+- Details and next implementation steps: [firebase/README.md](firebase/README.md).
+
 ## Next candidates (not started)
 
 1. DOCX import: apply the same title cleanup/list merging, and read text boxes (`w:txbxContent`) in order.
