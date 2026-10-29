@@ -6,7 +6,7 @@ Spark plan, and do not attach a billing account or create paid services.
 ## What is now working
 
 - Project **nitre-d8cdd** / **Nitre**, default Firestore Native database in **nam5**.
-- The running local FastAPI app now uses Firestore as its **primary structured database**.
+- The deployed FastAPI app at **https://formiqo-six.vercel.app** and the local app use Firestore as their **primary structured database**.
   This is not merely a Firebase config or a score-only mirror.
 - Migrated **212 existing records** atomically and verified every record by reading it back:
   33 resumes, 30 ATS/job analyses, 14 editor drafts, 36 editor versions, 57 text versions,
@@ -37,13 +37,14 @@ application authorizes every API request and download using its HttpOnly cookie 
 ## Scope: data storage, not free Python hosting
 
 Firestore stores **structured data**. It does not run FastAPI, Chromium, Tesseract or conversion
-workers. PDF/DOCX/image input and output files remain in private backend file storage; binary
+workers. In production PDF/DOCX/image input and output files use **private Vercel Blob** on Hobby; binary
 files were not split across Firestore documents to work around file-hosting limits.
 
 No Cloud Run, Cloud Functions, Cloud SQL, SQL Connect or Cloud Storage bucket was provisioned.
-The Python backend is running locally. Vercel is not connected to a public backend yet, so this
-is **not a completed public deployment**. A separately hosted Python backend with durable file
-storage is still required if the app must work when this computer is offline.
+The Python backend is now deployed on **Vercel Hobby** alongside the frontend. It uses a bounded
+invocation mode, durable private files, and real Chromium PDF rendering. This no longer depends
+on the developer computer. See [current Vercel setup and limits](../GITHUB-VERCEL.md).
+Google access uses keyless OIDC federation and a dedicated Firestore data-access service account.
 
 ## Implementation
 
@@ -59,8 +60,9 @@ storage is still required if the app must work when this computer is offline.
 - Query and batch guards bound oversized requests. Large structured records use a compressed
   payload with scalar query fields retained, or fail explicitly; content is never truncated.
 - Free quota exhaustion returns an error; it does not enable billing or silently fall back to SQL.
-- Firestore cleanup scans run every 15 minutes instead of every minute. Expiry checks on requests
-  remain immediate. Billing-dependent TTL is not enabled.
+- Local Firestore cleanup scans run every 15 minutes. The deployed Hobby function uses a daily
+  authenticated cron instead of a forever thread. Request expiry checks remain immediate.
+  Billing-dependent TTL is not enabled.
 
 ## Configuration
 
@@ -107,9 +109,9 @@ The original SQLite backup only reflects the migration-time state.
 
 ## Tests and evidence
 
-- Backend: **184 passed**, including **11 Firestore/size/migration tests**.
-- Frontend: **42 passed**, production build and typecheck clean.
-- All seven real Chrome browser suites passed against the **live Firestore-backed app**:
+- Backend: **195 passed**, including **11 Firestore/size/migration tests** and Vercel cold-start checks.
+- Frontend: **47 passed**, production build and typecheck clean.
+- All seven real Chrome browser suites passed against the **public Vercel production website**:
   ATS upload/scoring, editor, builder, conversion/accounts, premium gallery/import,
   selected-text writing/crop and score records/export.
 - Fixed slow-cloud initialization races: deduplicated the cookie-setting config request and

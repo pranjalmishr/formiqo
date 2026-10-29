@@ -16,3 +16,6 @@ reportlab==5.1.0
 playwright==1.64.1
 openpyxl==3.1.5
 google-cloud-firestore==2.34.1
+vercel-blob==0.5.0
+websocket-client==1.9.2
+brotli==1.2.1

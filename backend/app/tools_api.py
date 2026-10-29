@@ -18,6 +18,8 @@ from .conversion import matrix,ConversionSettings
 from .document_tools import TOOLS,ToolSettings
 from .converter_api import job_dir,require_job,serialize,validate_input,process_job,_pending
 from .processing import native_slots
+from .native_env import worker_env
+from . import durable_files
 
 router=APIRouter(prefix='/api/tools',tags=['Professional document tools'])
 
@@ -67,7 +69,11 @@ async def prepare(request:Request,background:BackgroundTasks,tool:str=Form(...),
   spec={'inspection_only':True,'inputs':[e['path'] for e in entries],'formats':[e['format'] for e in entries],'source':entries[0]['format'],'target':target,'settings':{}}
   (directory/'request.json').write_text(json.dumps(spec))
   job=ConversionJob(id=identifier,owner=owner_id,source_filename=entries[0]['filename'] if len(entries)==1 else str(len(entries))+' documents',source_format=entries[0]['format'] if len(entries)==1 else 'batch',target_format=target,settings={'_tool_id':tool,'_phase':'inspect'},inputs=entries,expires_at=retention_expiry(owner_id))
-  db.add(job);db.commit();background.add_task(process_job,identifier);return serialize(job)
+  db.add(job);db.commit()
+  if settings.vercel_serverless:
+   await process_job(identifier);db.refresh(job)
+  else:background.add_task(process_job,identifier)
+  return serialize(job)
  except OSError:
   db.rollback();_pending.discard(identifier);shutil.rmtree(directory,ignore_errors=True);raise HTTPException(507,'Private workspace storage is unavailable. Check disk space and retry.')
  except Exception:
@@ -82,7 +88,7 @@ class Run(BaseModel):
 
 
 @router.post('/{identifier}/run',status_code=202)
-def run(identifier:str,data:Run,request:Request,background:BackgroundTasks,owner_id=Depends(owner),db:DBSession=Depends(get_db)):
+async def run(identifier:str,data:Run,request:Request,background:BackgroundTasks,owner_id=Depends(owner),db:DBSession=Depends(get_db)):
  rate_limit(request,'tool-runs');row=require_job(db,identifier,owner_id)
  if row.status!='prepared':raise HTTPException(409,'Wait for successful inspection before running, or prepare a fresh workspace.')
  tool=row.settings.get('_tool_id');definition=next((item for item in catalog() if item['id']==tool and item['available']),None)
@@ -91,6 +97,7 @@ def run(identifier:str,data:Run,request:Request,background:BackgroundTasks,owner
  except ValueError:raise HTTPException(422,'Invalid operation settings. Check ranges, dimensions, rotation and quality.')
  if tool=='pdf-delete' and not options.get('pages'):raise HTTPException(422,'Select at least one page to delete.')
  directory=job_dir(identifier)
+ await asyncio.to_thread(durable_files.inputs,row)
  if any(not (directory/'inputs'/entry['path']).is_file() for entry in row.inputs):raise HTTPException(410,'Prepared input files are no longer available. Upload again.')
  spec={'inputs':[e['path'] for e in row.inputs],'formats':[e['format'] for e in row.inputs],'source':row.inputs[0]['format'],'target':row.target_format,'settings':options}
  if not definition.get('conversion'):spec['operation']=tool
@@ -105,12 +112,15 @@ def run(identifier:str,data:Run,request:Request,background:BackgroundTasks,owner
  if changed!=1:db.rollback();raise HTTPException(409,'This workspace was already run or canceled. Refresh its status.')
  try:(directory/'request.json').write_text(json.dumps(spec))
  except OSError:db.rollback();raise HTTPException(507,'The operation could not be staged. Check workspace storage and retry.')
- db.commit();db.refresh(row);_pending.add(identifier);background.add_task(process_job,identifier)
+ db.commit();db.refresh(row);_pending.add(identifier)
+ if settings.vercel_serverless:
+  await process_job(identifier);db.refresh(row)
+ else:background.add_task(process_job,identifier)
  return serialize(row)
 
 
 def thumbnail_worker(path,fmt,target,page):
- result=subprocess.run([sys.executable,'-m','app.tool_preview_worker',str(path.resolve()),fmt,str(target.resolve()),str(page)],capture_output=True,timeout=20,check=False)
+ result=subprocess.run([sys.executable,'-m','app.tool_preview_worker',str(path.resolve()),fmt,str(target.resolve()),str(page)],capture_output=True,timeout=20,check=False,env=worker_env(target.parent))
  if result.returncode or not target.is_file():raise ValueError('Thumbnail generation failed')
 
 
@@ -118,13 +128,14 @@ def thumbnail_worker(path,fmt,target,page):
 async def preview(identifier:str,input:int=0,page:int=1,owner_id=Depends(owner),db:DBSession=Depends(get_db)):
  row=require_job(db,identifier,owner_id)
  if not 0<=input<len(row.inputs) or not 1<=page<=settings.max_pages:raise HTTPException(404,'Preview not found.')
- directory=job_dir(identifier);cache=directory/'previews';cache.mkdir(exist_ok=True,mode=0o700);target=cache/f'{input}-{page}.png'
- if not target.is_file():
+ directory=job_dir(identifier);cache=directory/'previews';cache.mkdir(parents=True,exist_ok=True,mode=0o700);target=cache/f'{input}-{page}.png'
+ if not await asyncio.to_thread(durable_files.hydrate,target):
   entry=row.inputs[input];source=directory/'inputs'/entry['path']
-  if not source.is_file():raise HTTPException(410,'Source preview is no longer available; download the validated output instead.')
+  if not await asyncio.to_thread(durable_files.hydrate,source):raise HTTPException(410,'Source preview is no longer available; download the validated output instead.')
   async with native_slots:
    try:await asyncio.to_thread(thumbnail_worker,source,entry['format'],target,page)
    except Exception:raise HTTPException(422,'This preview could not be rendered safely.')
+  await asyncio.to_thread(durable_files.persist,target)
  return FileResponse(target,media_type='image/png',headers={'Cache-Control':'private, max-age=60'})
 
 
@@ -134,9 +145,12 @@ async def output_preview(identifier:str,index:int=0,owner_id=Depends(owner),db:D
  if row.status!='completed' or not 0<=index<len(row.outputs):raise HTTPException(404,'Output preview not found.')
  output=row.outputs[index]
  if output['format'] not in ('pdf','jpg','png','webp'):raise HTTPException(415,'This output format has no native thumbnail.')
- directory=job_dir(identifier);cache=directory/'previews';cache.mkdir(exist_ok=True,mode=0o700);target=cache/f'output-{index}.png'
- if not target.is_file():
+ directory=job_dir(identifier);cache=directory/'previews';cache.mkdir(parents=True,exist_ok=True,mode=0o700);target=cache/f'output-{index}.png'
+ if not await asyncio.to_thread(durable_files.hydrate,target):
+  source=directory/'outputs'/output['filename']
+  if not await asyncio.to_thread(durable_files.hydrate,source):raise HTTPException(410,'Output is no longer available.')
   async with native_slots:
    try:await asyncio.to_thread(thumbnail_worker,directory/'outputs'/output['filename'],output['format'],target,1)
    except Exception:raise HTTPException(422,'Output thumbnail unavailable; download the validated document instead.')
+  await asyncio.to_thread(durable_files.persist,target)
  return FileResponse(target,media_type='image/png',headers={'Cache-Control':'private, max-age=60'})

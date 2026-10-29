@@ -113,6 +113,10 @@ async def export(identifier:str,request:Request,format:Literal['pdf','docx'],own
         if format=='pdf':data,info=await asyncio.wait_for(render_pdf(content),timeout=65)
         else:data=await measured_docx_bytes(content)
     except Exception as exc:
+        import logging,traceback
+        frames=[(frame.name,frame.lineno) for frame in traceback.extract_tb(exc.__traceback__)[-5:]]
+        reason=str(exc)[-2500:] if isinstance(exc,ValueError) or type(exc).__name__=='TargetClosedError' else 'See exception class and frame locations'
+        logging.getLogger('formiqo').error('studio_export_failed format=%s class=%s frames=%s reason=%s',format,type(exc).__name__,frames,reason)
         raise HTTPException(503 if format=='pdf' else 422,'Document export could not be validated. PDF rendering requires Chromium (python -m playwright install chromium, or FORMIQO_CHROMIUM). Check the canvas for layout errors before retrying.') from None
     return Response(data,media_type='application/pdf' if format=='pdf' else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',headers={'Content-Disposition':f'attachment; filename="formiqo-resume.{format}"'})
 

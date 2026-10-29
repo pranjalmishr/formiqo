@@ -24,6 +24,8 @@ from .storage import owner, rate_limit, safe_filename, validate_signature
 from .auth import retention_expiry, aware
 from .conversion import ConversionSettings, MIMES, IMAGE_TYPES, matrix, office_available
 from .processing import native_slots
+from .native_env import worker_env
+from . import durable_files
 
 router=APIRouter(prefix='/api/converter',tags=['Document conversion'])
 _slots=native_slots
@@ -41,7 +43,7 @@ def remove_job_files(identifier):
     if process and process.poll() is None:
         try: os.killpg(process.pid,signal.SIGKILL)
         except ProcessLookupError: pass
-    shutil.rmtree(job_dir(identifier),ignore_errors=True)
+    durable_files.remove_tree(job_dir(identifier))
 
 
 def require_job(db,identifier,owner_id):
@@ -88,7 +90,7 @@ def validate_input(path,ext,mime):
 def execute_job(identifier):
     directory=job_dir(identifier)
     scratch=directory/'scratch';scratch.mkdir(parents=True,exist_ok=True,mode=0o700)
-    process=subprocess.Popen([sys.executable,'-m','app.conversion_worker',str(directory.resolve())],stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,env={**os.environ,'OMP_THREAD_LIMIT':'1','TMPDIR':str(scratch.resolve())})
+    process=subprocess.Popen([sys.executable,'-m','app.conversion_worker',str(directory.resolve())],stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,env=worker_env(scratch.resolve()))
     _processes[identifier]=process
     try:
         stdout,_=process.communicate(timeout=settings.conversion_timeout)
@@ -124,12 +126,14 @@ async def process_job(identifier):
                     row.status='failed';row.error=result['error'];row.error_code=result.get('error_code','processing_failed')
                     shutil.rmtree(job_dir(identifier)/'outputs',ignore_errors=True)
                 elif 'inspection' in result:
+                    await asyncio.to_thread(durable_files.persist_inputs,row)
                     row.settings={**row.settings,'_inspection':result['inspection']};row.status='prepared';row.progress=0
                 else:
                     # Worker already opened/validated each output; verify manifest paths too.
                     outputs=result.get('outputs',[])
                     if not outputs or any(Path(o['filename']).name!=o['filename'] or not (job_dir(identifier)/'outputs'/o['filename']).is_file() for o in outputs):
                         raise ValueError('Invalid output manifest')
+                    await asyncio.to_thread(durable_files.persist_outputs,identifier,outputs)
                     row.outputs=outputs;row.warnings=result.get('warnings',[]);row.status='completed';row.progress=100
                     db.add(DocumentRecord(owner=row.owner,job_id=row.id,filename=Path(row.source_filename).stem+'.'+row.target_format,format=row.target_format))
                 row.completed_at=now();row.duration_ms=int((time.monotonic()-started)*1000);db.commit()
@@ -142,8 +146,13 @@ async def process_job(identifier):
     finally:
         with Session() as db:
             retained=db.get(ConversionJob,identifier)
-            if not retained or retained.status!='prepared':shutil.rmtree(job_dir(identifier)/'inputs',ignore_errors=True)
+            if not retained or retained.status!='prepared':
+                await asyncio.to_thread(durable_files.remove_tree,job_dir(identifier)/'inputs')
         (job_dir(identifier)/'request.json').unlink(missing_ok=True)
+        if settings.vercel_serverless and durable_files.enabled():
+            # Inputs/outputs were already committed to private Blob before their
+            # status response. The function cache must not grow across warm jobs.
+            shutil.rmtree(job_dir(identifier),ignore_errors=True)
         _pending.discard(identifier)
 
 
@@ -190,7 +199,10 @@ async def create_job(request:Request,background:BackgroundTasks,files:list[Uploa
         payload={'inputs':[e['path'] for e in entries],'source':source,'target':target,'settings':validated.model_dump()}
         (directory/'request.json').write_text(json.dumps(payload),encoding='utf-8')
         row=ConversionJob(id=identifier,owner=owner_id,source_filename=entries[0]['filename'] if len(entries)==1 else f'{len(entries)} images',source_format=source if len(entries)==1 else 'images',target_format=target,settings=validated.model_dump(),inputs=entries,expires_at=retention_expiry(owner_id))
-        db.add(row);db.commit();_pending.add(identifier);background.add_task(process_job,identifier)
+        db.add(row);db.commit();_pending.add(identifier)
+        if settings.vercel_serverless:
+            await process_job(identifier);db.refresh(row)
+        else:background.add_task(process_job,identifier)
         return serialize(row)
     except OSError:
         _pending.discard(identifier);db.rollback();shutil.rmtree(directory,ignore_errors=True)
@@ -219,10 +231,10 @@ def download(identifier:str,index:int=0,inline:bool=False,owner_id=Depends(owner
     if row.status!='completed': raise HTTPException(409,'This conversion has no completed output yet.')
     if not 0<=index<len(row.outputs): raise HTTPException(404,'Output not found.')
     output=row.outputs[index];name=output['filename'];path=job_dir(identifier)/'outputs'/name
-    if Path(name).name!=name or not path.is_file(): raise HTTPException(410,'Output is no longer available. Convert the source again.')
+    if Path(name).name!=name or not durable_files.enabled() and not path.is_file(): raise HTTPException(410,'Output is no longer available. Convert the source again.')
     # No public static file URLs; every request authorizes the owner and expiry.
     disposition='inline' if inline and output['format'] in ('pdf','jpg','png','webp') else 'attachment'
-    return FileResponse(path,media_type=output['mime'],filename=name,content_disposition_type=disposition,headers={'Cache-Control':'no-store'})
+    return durable_files.response(path,output['mime'],filename=name,disposition=disposition)
 
 
 @router.delete('/jobs/{identifier}',status_code=204)

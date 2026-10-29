@@ -11,6 +11,7 @@ import { BuilderDates, BuilderField as Field, EntryCard } from '../components/Bu
 import { ResumePreview } from '../components/ResumePreview';
 import { DocumentCanvas } from '../components/DocumentCanvas';
 import { api } from '../lib/api';
+import {stableJSON} from '../lib/stable-json';
 import { builderSchema, emptyBuilder, steps, orderLabels, builderExport, type BuilderData, type BuilderDraft, type Template } from '../lib/builder';
 import { htmlText, type ResumeSection } from '../lib/editor';
 
@@ -27,14 +28,14 @@ export default function Builder(){
  const [autosave,setAutosave]=useState(false),[confirmed,setConfirmed]=useState(false),[pdfURL,setPDFURL]=useState(''),[previewTemplate,setPreviewTemplate]=useState<Template|null>(null);
  const [showPreview,setShowPreview]=useState(false),[remove,setRemove]=useState<{label:string;run:()=>void}|null>(null);
  const lock=useRef(false),skipLoad=useRef(''),draftRef=useRef<BuilderDraft|null>(null);draftRef.current=draft;
- const dirty=JSON.stringify(data)!==(saved||JSON.stringify(emptyBuilder));const step=data.step||1;const activeStep=steps[step-1];const selectedTemplate=templates.find(item=>item.id===data.template);
+ const dirty=stableJSON(data)!==(saved||stableJSON(emptyBuilder));const step=data.step||1;const activeStep=steps[step-1];const selectedTemplate=templates.find(item=>item.id===data.template);
  useBeforeUnload(event=>{if(dirty){event.preventDefault();event.returnValue=''}});
  useEffect(()=>{const guard=(event:MouseEvent)=>{const anchor=(event.target as HTMLElement).closest('a');if(dirty&&anchor?.getAttribute('href')?.startsWith('/')&&!confirm('Leave with unsaved builder changes? Save your draft first.')){event.preventDefault();event.stopPropagation()}};document.addEventListener('click',guard,true);return()=>document.removeEventListener('click',guard,true)},[dirty]);
  useEffect(()=>{api<{items:Template[]}>('/builder/templates').then(result=>setTemplates(result.items)).catch(err=>setError(err.message))},[]);
  useEffect(()=>{
   let active=true;const id=params.get('resume');if(id&&skipLoad.current===id){skipLoad.current='';return}
   setLoading(true);setError('');setNotice('');setConfirmed(false);setAutosave(false);
-  (async()=>{try{if(id){const result=await api<BuilderDraft>('/builder/'+id);if(active){setDraft(result);reset(result.data);setSaved(JSON.stringify(result.data));setPreview(result.content.sections);setIssues(result.export_issues)}}else{const result=await api<{items:BuilderDraft[]}>('/builder?limit=100');if(active){setDraft(null);reset(structuredClone(emptyBuilder));setSaved(JSON.stringify(emptyBuilder));setSavedDrafts(result.items)}}}catch(err){if(active)setError((err as Error).message)}finally{if(active)setLoading(false)}})();return()=>{active=false};
+  (async()=>{try{if(id){const result=await api<BuilderDraft>('/builder/'+id);if(active){setDraft(result);reset(result.data);setSaved(stableJSON(result.data));setPreview(result.content.sections);setIssues(result.export_issues)}}else{const result=await api<{items:BuilderDraft[]}>('/builder?limit=100');if(active){setDraft(null);reset(structuredClone(emptyBuilder));setSaved(stableJSON(emptyBuilder));setSavedDrafts(result.items)}}}catch(err){if(active)setError((err as Error).message)}finally{if(active)setLoading(false)}})();return()=>{active=false};
  },[params,reset]);
  useEffect(()=>{
   if(loading)return;let active=true;const timer=setTimeout(async()=>{const parsed=builderSchema.safeParse(getValues());if(!parsed.success){setPreviewError('The preview shows the last valid content. Correct the highlighted field values to update it.');return}setPreviewBusy(true);try{const result=await api<{content:{sections:ResumeSection[]};export_issues:string[]}>('/builder/preview',{method:'POST',body:JSON.stringify(parsed.data)});if(active){setPreview(result.content.sections);setIssues(result.export_issues);setPreviewError('')}}catch(err){if(active)setPreviewError((err as Error).message)}finally{if(active)setPreviewBusy(false)}},700);return()=>{active=false;clearTimeout(timer)};
@@ -45,7 +46,7 @@ export default function Builder(){
   if(lock.current)return null;if(!await trigger()){setError('Correct the invalid fields before saving. You can move between steps to review them.');return null}
   if(lock.current)return null;lock.current=true;setBusy(true);setError('');const submitted=getValues();
   try{const existing=draftRef.current;const result=await api<BuilderDraft>(existing&&!copy?'/builder/'+existing.resume_id:'/builder/create',{method:existing&&!copy?'PATCH':'POST',body:JSON.stringify(existing&&!copy?{revision:existing.revision,data:submitted}:submitted)});
-   setDraft(result);draftRef.current=result;setSaved(JSON.stringify(result.data));setNotice('Saved · builder version '+result.revision+' · temporary workspace');
+   setDraft(result);draftRef.current=result;setSaved(stableJSON(result.data));setNotice('Saved · builder version '+result.revision+' · temporary workspace');
    if(!existing||copy){skipLoad.current=result.resume_id;setParams({resume:result.resume_id},{replace:true})}return result;
   }catch(err){setError((err as Error).message);setAutosave(false);return null}finally{lock.current=false;setBusy(false)}
  }

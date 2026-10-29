@@ -4,16 +4,19 @@ A working React/Vite/TypeScript frontend and FastAPI backend with native Firesto
 project directory, database names and guest cookie remain compatible with the earlier ResumeAI build.
 No random scores, fake conversions, invented activity or frontend API secrets.
 
-For GitHub and Vercel hosting, see [GitHub + Vercel setup](GITHUB-VERCEL.md).
-Vercel serves the frontend; persistent backend/database hosting is required separately.
-The running local app now stores structured data in ordinary Cloud Firestore in **nitre-d8cdd**
+**Live website: https://formiqo-six.vercel.app** — frontend and FastAPI are deployed together on Vercel Hobby.
+For settings, resolved failures, native PDF rendering and limits, see [GitHub + Vercel deployment](GITHUB-VERCEL.md).
+The public app stores structured data in ordinary Cloud Firestore in **nitre-d8cdd**
 on the free Spark plan, with **no billing account**. Existing data (212 records) was migrated
 and read-back verified. See [Firestore setup and limits](firebase/README.md).
-PDF/DOCX/image binaries remain in private backend storage. Public Python hosting is still pending.
+PDF/DOCX/image binaries use private Vercel Blob within Hobby allowances, not Firestore documents.
+Uploads are capped at 4 MB per request on Vercel. External AI/email and native OCR/Office services
+remain explicitly unavailable unless configured; they are not simulated.
 
 ## Start here
 
-- Application: **http://localhost:5173**
+- Production: **https://formiqo-six.vercel.app**
+- Local development: **http://localhost:5173**
 - ATS checker: **/app/checker**
 - Resume editor: **/app/editor**
 - Guided builder: **/app/builder**
@@ -280,7 +283,7 @@ npm run test:e2e
 CHROME_EXECUTABLE='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' npm run test:e2e
 ```
 
-Current backend suite: **184 tests** with the Firestore emulator. Frontend unit/component suite: **42 tests**. Seven browser e2e suites. Production build and actual
+Current backend suite: **195 tests** with the Firestore emulator. Frontend unit/component suite: **47 tests**. Seven browser e2e suites passed on the public production URL. Production build and actual
 browser workflows cover checker, editor, builder, conversion/ZIP/ordered mixed images, account claiming,
 sign-in/out isolation/persistence, library rename/filter, history, matcher/tailored copies, local assistant,
 unavailable SMTP, account deletion and responsive layouts. Actual conversion outputs are opened, not merely status-checked.

@@ -76,17 +76,34 @@ def browser_path():
     if configured:return configured
     for candidate in ['/usr/bin/chromium','/usr/bin/chromium-browser','/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']:
         if Path(candidate).is_file():return candidate
+    from .config import settings
+    if settings.vercel_serverless:
+        from .lambda_chromium import prepare
+        return prepare()
     return None
 
 
 async def render_pdf(content:DraftContent):
+    from .config import settings
+    if settings.vercel_serverless:
+        from .cdp_pdf import render
+        async with native_slots:
+            return await asyncio.to_thread(render,content)
     from playwright.async_api import async_playwright
     async with native_slots:
         async with async_playwright() as driver:
             options={'headless':True,'args':['--disable-dev-shm-usage','--disable-background-networking']}
-            executable=browser_path()
+            try:executable=browser_path()
+            except Exception as exc:
+                import logging
+                logging.getLogger('formiqo').error('chromium_prepare_failed class=%s reason=%s',type(exc).__name__,str(exc)[:500])
+                raise
             if executable:options['executable_path']=executable
-            browser=await driver.chromium.launch(**options)
+            try:browser=await driver.chromium.launch(**options)
+            except Exception as exc:
+                import logging
+                logging.getLogger('formiqo').error('chromium_launch_failed class=%s reason=%s',type(exc).__name__,str(exc)[-2200:])
+                raise
             try:
                 page=await browser.new_page(viewport={'width':850,'height':1200},device_scale_factor=1)
                 await page.route('**/*',lambda route:route.abort())

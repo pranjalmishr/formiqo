@@ -52,9 +52,9 @@ history) and covered by the existing conversion/document-tool suites (41 tests).
 
 ## Current verified state
 
-- Backend: 184 passed (including 11 Firestore/size/migration tests). Frontend unit: 42 passed.
+- Backend: 195 passed (including Firestore and Vercel-specific checks). Frontend unit: 47 passed.
   `tsc -b` and `npm run build`: clean.
-- Browser e2e against the live Firestore-backed app (Chrome): `e2e`, `editor`, `builder`,
+- Browser e2e against **https://formiqo-six.vercel.app** (Chrome): `e2e`, `editor`, `builder`,
   `remaining`, `premium`, `studio-details` and `records` all PASS.
 - Word page counts were measured with LibreOffice 26.2 (in `/tmp`, measurement only, not an app dependency). Microsoft Word may differ by a line or two with different installed fonts.
 
@@ -65,17 +65,15 @@ history) and covered by the existing conversion/document-tool suites (41 tests).
   The additional OAuth `workflow` permission was approved. The source was pushed to `main`,
   and the remote commit matched local commit `61c3e56434df91babd05f7fb2ea3852dbb41eee3`.
   GitHub Actions started after the push; hosted CI was still in progress at verification.
-- Vercel project [formiqo](https://vercel.com/pranjal-mishras-projects-52970ad6/formiqo) created
-  and locally linked. Root `frontend`, Node 22.x and custom build settings were configured and
-  read back via the authenticated Vercel API. No deployment targets exist yet.
-- Added Vercel frontend Build Output API configuration with a build-time `FORMIQO_API_ORIGIN`
-  edge rewrite, SPA routing, and tests. Local frontend tests: 40 passed; deployment tests: 4 passed;
-  production and Vercel-output builds pass (the latter used an example origin, not a live backend).
+- Vercel project [formiqo](https://vercel.com/pranjal-mishras-projects-52970ad6/formiqo) is now
+  **Ready in production**. Repository root (`.`), Node 22.x, Python 3.12, frontend/dist static
+  output and a same-project ASGI API replace the initial frontend-only deployment attempt.
+- The initial missing `FORMIQO_API_ORIGIN` failure was real and is resolved. The old optional
+  external-backend build helper is not the current deployment path.
 - Hardened Git/Vercel exclusions for secrets, local databases and private documents. Added
   standalone repository CI under `.github/workflows/checks.yml`.
-- The user confirmed there is **no hosted backend**. See [GITHUB-VERCEL.md](GITHUB-VERCEL.md).
-  Source push is complete; production awaits a live persistent backend origin.
-  No working application URL is claimed.
+- Public frontend and Python backend are now hosted on Hobby; Firestore remains on Spark.
+  See [GITHUB-VERCEL.md](GITHUB-VERCEL.md) for exact settings, verified features and limits.
 
 ## Firebase backend/database request
 
@@ -91,12 +89,29 @@ history) and covered by the existing conversion/document-tool suites (41 tests).
   mode 0600. The browser API key is not used as a server credential. Settings shows the provider.
 - Existing default-deny Firebase rules unchanged; anonymous probe 403. Final billing check:
   **disabled, no billing account attached**. No Cloud Run, Functions, Cloud SQL or buckets created.
-- PDF/DOCX/image binaries remain local; public Python hosting is still pending. Firestore
-  data persistence is complete; a public backend/Vercel deployment is not claimed complete.
+- Public Python hosting is now complete on Vercel, with private Vercel Blob for files. Backfilled
+  30 legacy local files with SHA-256 read-back verification; all 36 active file references were
+  checked available. Local originals/backups were retained. No paid Firebase services were created.
 - Slower cloud requests exposed initialization/save-status races. Fixed duplicate guest-cookie
   initialization and stale save notices, added two frontend tests, and updated continuation e2e
   to await the actual save revision rather than assume v4 after markup normalization.
 - Details: [firebase/README.md](firebase/README.md). CI now runs a demo-project Firestore emulator.
+
+## Vercel Hobby bug-fix pass
+
+- Verified the team is **Hobby** (active); no Pro upgrade or Google billing account was enabled.
+- Created a private Blob store within Hobby allowances and configured restricted keyless Google WIF.
+- Fixed missing /tmp startup directory, subprocess import paths, flat requirements parsing,
+  native Chromium memory/disk/library startup, and cold-start input/output/preview restoration.
+- Reduced cloud bundle from about 387 MB to 249 MB using native Chromium CDP instead of
+  Playwright's 142 MB Node driver. Real PDF rendering preserves source tokens and measured page count.
+- Streamed private downloads to avoid filling ephemeral cache; actual 5.9 MB PNG download verified.
+- Fixed Firestore map ordering causing false builder unsaved-change prompts and immediately
+  prepared merge workspaces producing null file-order entries. Five new frontend tests cover these.
+- Added 11 backend Vercel regressions; all seven public-site browser suites pass on the final code.
+- Daily authenticated cleanup cron is configured. Native parser environments exclude server secrets.
+- Limits: 4 MB uploads, 20 pages, bounded invocation duration, provider free allowances. Live external
+  AI/email and OCR/Office engines are not configured; no fake successes are shown.
 
 ## Next candidates (not started)
 

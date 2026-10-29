@@ -90,6 +90,10 @@ def client_for(project, database='(default)', credentials_file=None):
         # installed Firebase CLI OAuth client does not register a separate datastore scope.
         credentials,_=google.auth.load_credentials_from_file(str(credentials_file))
         return firestore.Client(project=project,database=database,credentials=credentials)
+    import os
+    if os.environ.get('GCP_WIF_PROVIDER'):
+        from .vercel_identity import credentials
+        return firestore.Client(project=project,database=database,credentials=credentials())
     return firestore.Client(project=project,database=database)
 
 

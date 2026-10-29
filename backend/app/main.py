@@ -15,6 +15,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFi
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.exc import IntegrityError
+from google.api_core.exceptions import ResourceExhausted,ServiceUnavailable,DeadlineExceeded
 from fastapi.responses import JSONResponse
 from .persistence import find, first, remove_where, ping
 from sqlalchemy.orm import Session as DBSession
@@ -27,6 +28,7 @@ from .ai import evaluate,attach_semantic_diagnostics
 from .middleware import RequestSizeLimit
 from .auth import retention_expiry
 from .processing import native_slots
+from .native_env import worker_env
 
 _pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='resume-extraction')
 _slots = native_slots
@@ -39,13 +41,16 @@ def expire_records():
     from .converter_api import cleanup_jobs
     cleanup_jobs()
     with Session() as db:
-        expired = find(db, Resume, [('expires_at','<',now())])
-        for resume in expired:
+        expired = [resume.id for resume in find(db, Resume, [('expires_at','<',now())],limit=50 if settings.vercel_serverless else None)]
+    for identifier in expired:
+        with Session() as db:
+            resume=db.get(Resume,identifier)
+            if not resume or resume.expires_at>=now():continue
             remove_source(resume.id, include_original=True)
             for model in [SourceDocument,Analysis,ResumeVersion,EditorVersion,EditorDraft,BuilderDraft]:
                 remove_where(db,model,[('resume_id','==',resume.id)])
             db.delete(resume)
-        db.commit()
+            db.commit()
     # Interrupted requests can leave sources before a DB row was created.
     import time
     for path in settings.storage_dir.iterdir():
@@ -76,6 +81,11 @@ async def janitor():
 @asynccontextmanager
 async def lifespan(app):
     initialize_storage()
+    if settings.vercel_serverless:
+        # No global recovery/cleanup on every cold start: another invocation may
+        # legitimately be processing a request. Cloud auth needs HTTP OIDC context.
+        yield
+        return
     init_db()
     from .converter_api import recover_jobs
     recover_jobs()
@@ -99,6 +109,13 @@ app.add_middleware(CORSMiddleware, allow_origins=[settings.allowed_origin], allo
 @app.exception_handler(IntegrityError)
 async def persistence_conflict(request, exc):
     return JSONResponse({'detail':'A conflicting record already exists. Reload or sign in before retrying.'},status_code=409)
+
+
+@app.exception_handler(ResourceExhausted)
+@app.exception_handler(ServiceUnavailable)
+@app.exception_handler(DeadlineExceeded)
+async def cloud_data_unavailable(request,exc):
+    return JSONResponse({'detail':'The data service is temporarily unavailable or its free allowance has been reached. Check the saved revision before retrying; no paid upgrade is performed automatically.'},status_code=503,headers={'Retry-After':'300'})
 
 
 @app.middleware('http')
@@ -151,7 +168,7 @@ def serialize_resume(r, full=True):
 def run_worker(path, ext):
     scratch=settings.storage_dir/'scratch'/path.stem
     scratch.mkdir(parents=True,exist_ok=True,mode=0o700)
-    process = subprocess.Popen([sys.executable, '-m', 'app.worker', str(path.resolve()), ext], stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, env={**os.environ, 'OMP_THREAD_LIMIT': '1', 'TMPDIR': str(scratch.resolve())})
+    process = subprocess.Popen([sys.executable, '-m', 'app.worker', str(path.resolve()), ext], stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, env=worker_env(scratch.resolve()))
     try:
         stdout, _ = process.communicate(timeout=settings.extraction_timeout)
     except subprocess.TimeoutExpired:
@@ -210,7 +227,18 @@ def health(db: DBSession = Depends(get_db)):
 @app.get('/api/config')
 def configuration(response: Response, owner_id=Depends(owner)):
     import shutil
-    return {'max_upload_mb': settings.max_upload_mb, 'max_pages': settings.max_pages, 'retention_hours': settings.retention_hours, 'account_retention_days': settings.account_retention_days, 'guest_allowed': settings.guest_allowed, 'guest_limit_per_hour': settings.guest_limit_per_hour, 'ai_available': bool(settings.llm_api_key), 'ai_provider': settings.llm_base_url, 'ai_model': settings.llm_model, 'ocr_available': bool(shutil.which('tesseract')), 'weights': settings.scoring_weights, 'accounts_enabled': settings.accounts_enabled, 'email_available': bool(settings.smtp_host),'database_backend':settings.database_backend,'firebase_project_id':settings.firebase_project_id if settings.database_backend=='firestore' else None,'binary_storage':'private backend files'}
+    return {'max_upload_mb': settings.max_upload_mb, 'max_pages': settings.max_pages, 'retention_hours': settings.retention_hours, 'account_retention_days': settings.account_retention_days, 'guest_allowed': settings.guest_allowed, 'guest_limit_per_hour': settings.guest_limit_per_hour, 'ai_available': bool(settings.llm_api_key), 'ai_provider': settings.llm_base_url, 'ai_model': settings.llm_model, 'ocr_available': bool(shutil.which('tesseract')), 'weights': settings.scoring_weights, 'accounts_enabled': settings.accounts_enabled, 'email_available': bool(settings.smtp_host),'database_backend':settings.database_backend,'firebase_project_id':settings.firebase_project_id if settings.database_backend=='firestore' else None,'binary_storage':'private Vercel Blob' if settings.file_storage_backend=='vercel_blob' else 'private backend files'}
+
+
+@app.get('/api/maintenance/cleanup')
+async def scheduled_cleanup(request:Request):
+    # Hobby supports a daily cron. This endpoint never accepts a client owner ID.
+    import hmac
+    expected=os.environ.get('CRON_SECRET','')
+    if not expected or not hmac.compare_digest(request.headers.get('authorization',''),'Bearer '+expected):
+        raise HTTPException(403,'Not authorized to run maintenance.')
+    await asyncio.to_thread(expire_records)
+    return {'status':'ok'}
 
 
 @app.post('/api/resumes/upload', status_code=202)
@@ -231,6 +259,8 @@ async def upload(request: Request, background: BackgroundTasks, file: UploadFile
         originals.mkdir(parents=True,exist_ok=True,mode=0o700)
         original=originals/f'{identifier}.{ext}'
         shutil.copyfile(path,original);original.chmod(0o600)
+        from .durable_files import persist
+        await asyncio.to_thread(persist,original)
         db.add(resume);db.flush()
         db.add(SourceDocument(resume_id=identifier,format=ext,filename=filename,size=path.stat().st_size))
         db.commit()
@@ -239,7 +269,12 @@ async def upload(request: Request, background: BackgroundTasks, file: UploadFile
         _pending.discard(identifier)
         raise HTTPException(503, 'Storage is unavailable. Please try again.')
     _pending.add(identifier)
-    background.add_task(process_document, identifier, path, ext)
+    if settings.vercel_serverless:
+        await process_document(identifier,path,ext)
+        db.refresh(resume)
+        original.unlink(missing_ok=True)  # the retained source is already durable
+    else:
+        background.add_task(process_document, identifier, path, ext)
     return serialize_resume(resume)
 
 

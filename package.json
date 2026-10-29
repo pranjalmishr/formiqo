@@ -1,0 +1,10 @@
+{
+  "name": "formiqo-deployment",
+  "private": true,
+  "type": "module",
+  "engines": {"node": "22.x"},
+  "scripts": {
+    "build": "node scripts/prepare-vercel.mjs && npm --prefix frontend run build"
+  },
+  "dependencies": {"@sparticuz/chromium": "153.0.0"}
+}

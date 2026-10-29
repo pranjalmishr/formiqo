@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     firebase_credentials_file: Path | None = None  # optional local ADC path; never a browser API key
     firebase_namespace: str = Field(default='v1', pattern=r'^[A-Za-z0-9_-]{1,80}$')
     storage_dir: Path = Path('./private-storage')
+    vercel_serverless: bool = False
+    file_storage_backend: Literal['local','vercel_blob'] = 'local'
     max_upload_mb: int = Field(default=10, ge=1, le=25)
     max_pages: int = Field(default=30, ge=1, le=50)
     max_text_chars: int = Field(default=100000, ge=100, le=100000)

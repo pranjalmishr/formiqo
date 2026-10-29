@@ -23,3 +23,7 @@
 **/coverage/
 **/*.log
 **/.DS_Store
+# Build-only Chromium binaries (pinned npm package, copied during deployment).
+backend/app/runtime_assets/
+.vercel
+.env*

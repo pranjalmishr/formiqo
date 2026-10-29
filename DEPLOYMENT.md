@@ -1,12 +1,19 @@
 # Formiqo deployment and release checklist
 
-This repository supplies a working single-instance deployment, not a security certification.
-A production release requires the configuration and operational checks below.
+**Live deployment: https://formiqo-six.vercel.app** (Vercel Hobby).
+See [current Vercel settings and verification](GITHUB-VERCEL.md): repository root, same-project
+Python API, keyless Google access, free Firestore and private Blob storage. No Google billing
+account or Vercel Pro upgrade was enabled. The public deployment passed all seven browser suites.
 
-## Recommended topology
+The cloud invocation mode completes bounded work before responding and persists files outside
+`/tmp`. It does not use the self-hosted queue/recovery/forever-janitor described below. Uploads
+are capped at 4 MB. Review the documented limits and optional unavailable engines before launch.
+This is not a security certification; operations/backup/abuse checks still matter.
+
+## Self-hosted / Docker alternative
 
 Current user-selected data store: **ordinary Cloud Firestore on Spark, no billing account**.
-The local backend is configured and 212 existing structured records were migrated and verified.
+The backend is configured and 212 existing structured records were migrated and verified.
 See [Firestore setup and limits](firebase/README.md). Do not enable paid Firebase services for this setup.
 
 HTTPS ingress → frontend Nginx/Vercel static assets + same-origin `/api` proxy → one FastAPI instance → Firestore

@@ -114,7 +114,8 @@ def validate_signature(path: Path, ext: str):
 
 
 def remove_source(identifier: str, include_original: bool = False):
+    from .durable_files import remove
     for ext in MIMES:
         (settings.storage_dir / f'{identifier}.{ext}').unlink(missing_ok=True)
         if include_original:
-            (settings.storage_dir / 'originals' / f'{identifier}.{ext}').unlink(missing_ok=True)
+            remove(settings.storage_dir / 'originals' / f'{identifier}.{ext}')
